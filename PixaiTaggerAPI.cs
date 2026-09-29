@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using FreneticUtilities.FreneticExtensions;
@@ -6,6 +7,7 @@ using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Builtin_ComfyUIBackend;
 using SwarmUI.Core;
+using SwarmUI.Text2Image;
 using SwarmUI.Utils;
 using SwarmUI.WebAPI;
 
@@ -413,6 +415,35 @@ public static class PixaiTaggerAPI
 
         string tempOutputPath = Path.Combine(Path.GetTempPath(), $"pixaitagger_{Guid.NewGuid():N}.json").Replace('\\', '/');
 
+        string hfHubCache = Environment.GetEnvironmentVariable("HF_HUB_CACHE");
+        string hfHome = Environment.GetEnvironmentVariable("HF_HOME");
+        string modelCacheDir = null;
+        if (!string.IsNullOrWhiteSpace(hfHubCache))
+        {
+            modelCacheDir = Path.Combine(hfHubCache, "models--pixai-labs--pixai-tagger-v1.0");
+        }
+        else if (!string.IsNullOrWhiteSpace(hfHome))
+        {
+            modelCacheDir = Path.Combine(hfHome, "hub", "models--pixai-labs--pixai-tagger-v1.0");
+        }
+        else
+        {
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            modelCacheDir = Path.Combine(userProfile, ".cache", "huggingface", "hub", "models--pixai-labs--pixai-tagger-v1.0");
+        }
+
+        bool isModelCached = !string.IsNullOrWhiteSpace(modelCacheDir) && Directory.Exists(modelCacheDir) && Directory.EnumerateFiles(modelCacheDir, "*", SearchOption.AllDirectories).Any();
+        if (!isModelCached)
+        {
+            Logs.Init("[PixAITagger] Model 'pixai-labs/pixai-tagger-v1.0' not found in local Hugging Face cache. Downloading model weights from Hugging Face (first-time setup)...");
+        }
+        else
+        {
+            Logs.Info("[PixAITagger] PixAI Tagger v1.0 model weights verified in local cache.");
+        }
+
+        long startTime = Environment.TickCount64;
+
         try
         {
             JObject workflow = new()
@@ -453,8 +484,35 @@ public static class PixaiTaggerAPI
                 }
             };
 
+            Logs.Info("[PixAITagger] Sending image tagging task to ComfyUI GPU backend...");
+
+            ComfyUIAPIAbstractBackend backend = ComfyUIBackendExtension.RunningComfyBackends.FirstOrDefault(b => b is ComfyUISelfStartBackend)
+                ?? ComfyUIBackendExtension.RunningComfyBackends.FirstOrDefault()
+                ?? throw new SwarmUserErrorException("No available ComfyUI Backend to run this operation");
+
+            T2IParamInput customInput = new(session);
+            bool loggedExecution = false;
+            customInput.ReceiveRawBackendData = (key, data) =>
+            {
+                if (key == "comfy_websocket" && data is byte[] bytes && bytes.Length > 0)
+                {
+                    try
+                    {
+                        string wsText = Encoding.UTF8.GetString(bytes);
+                        if (wsText.Contains("\"executing\"") && wsText.Contains("\"2\"") && !loggedExecution)
+                        {
+                            loggedExecution = true;
+                            Logs.Info("[PixAITagger] Executing PixAI Tagger v1.0 inference on GPU...");
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            };
+
             using Session.GenClaim claim = session.Claim(liveGens: 1);
-            await ComfyUIBackendExtension.RunArbitraryWorkflowOnFirstBackend(workflow.ToString(), _ => { }, allowRemote: false);
+            await backend.AwaitJobLive(workflow.ToString(), "0", _ => { }, customInput, Program.GlobalProgramCancel);
 
             if (!File.Exists(tempOutputPath))
             {
@@ -490,6 +548,19 @@ public static class PixaiTaggerAPI
                 meta = ApplyFilterTagRules(meta, filterRules);
                 rating = ApplyFilterTagRules(rating, filterRules);
             }
+
+            long elapsedMs = Environment.TickCount64 - startTime;
+            double elapsedSec = elapsedMs / 1000.0;
+
+            if (!isModelCached && !string.IsNullOrWhiteSpace(modelCacheDir) && Directory.Exists(modelCacheDir) && Directory.EnumerateFiles(modelCacheDir, "*", SearchOption.AllDirectories).Any())
+            {
+                Logs.Init($"[PixAITagger] Model 'pixai-labs/pixai-tagger-v1.0' downloaded and cached successfully to: {modelCacheDir}");
+            }
+
+            double gpuInferenceSec = parsedResult["inference_time_sec"]?.Value<double>() ?? 0;
+            string gpuDetail = gpuInferenceSec > 0 ? $" (GPU inference: {gpuInferenceSec:0.00}s)" : "";
+            int tagCount = combined.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+            Logs.Info($"[PixAITagger] Tag generation completed in {elapsedSec:0.00}s{gpuDetail}. Extracted {tagCount} tags.");
 
             return new JObject
             {

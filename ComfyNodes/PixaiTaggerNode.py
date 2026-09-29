@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import subprocess
+import time
 import numpy as np
 from PIL import Image
 import torch
@@ -219,6 +220,7 @@ class PixaiTaggerGenerate:
         exclude_tags="",
         output_path="",
     ):
+        t0 = time.time()
         tagger = get_tagger()
         excluded = parse_exclusions(exclude_tags)
         replace_underscore = not keep_underscores
@@ -237,6 +239,7 @@ class PixaiTaggerGenerate:
         # Convert image batch to PIL
         pil_images = [to_pil_image(img) for img in images]
         raw_results = tagger(pil_images, threshold=pipeline_thresholds, batch_size=len(pil_images))
+        inference_time = time.time() - t0
         if isinstance(raw_results, dict):
             raw_results = [raw_results]
 
@@ -329,6 +332,7 @@ class PixaiTaggerGenerate:
             try:
                 output_payload = {
                     "success": True,
+                    "inference_time_sec": round(inference_time, 3),
                     "combined_tags": all_combined[0] if all_combined else "",
                     "character": all_character[0] if all_character else "",
                     "copyright": all_copyright[0] if all_copyright else "",
