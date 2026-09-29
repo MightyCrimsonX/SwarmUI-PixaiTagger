@@ -326,7 +326,7 @@ public static class PixaiTaggerAPI
     }
 
     /// <summary>Applies exact replacements, exact exclusions, wildcard replacements, and wildcard exclusions.</summary>
-    public static string ApplyFilterTagRules(string rawTags, FilterTagRules rules)
+    private static string ApplyFilterTagRules(string rawTags, FilterTagRules rules)
     {
         if (string.IsNullOrWhiteSpace(rawTags))
         {
