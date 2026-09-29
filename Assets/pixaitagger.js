@@ -169,6 +169,7 @@ class PixaiTaggerHelper {
             let toggle = document.getElementById('input_' + id + '_toggle');
             if (toggle && toggle.checked != toggled) {
                 toggle.checked = toggled;
+                localStorage.setItem('pixai_toggle_' + id, toggled ? 'true' : 'false');
                 if (typeof doToggleEnable == 'function') {
                     doToggleEnable('input_' + id);
                 }
@@ -1023,8 +1024,9 @@ setTimeout(() => {
 }, 0);
 
 /**
- * Sets initial default toggle states for PixAI threshold parameters in SwarmUI if not previously configured by the user.
+ * Sets initial default toggle states for PixAI threshold parameters in SwarmUI.
  * By default: General, Character, and Clothing are ON; Style and Copyright are OFF.
+ * Remembers user preference across reloads via localStorage and SwarmUI cookies.
  */
 function initPixaiDefaultToggles() {
     let defaultsOn = ['pixaigeneralthreshold', 'pixaicharacterthreshold', 'pixaiclothingthreshold'];
@@ -1032,20 +1034,73 @@ function initPixaiDefaultToggles() {
 
     for (let id of defaultsOn) {
         let toggle = document.getElementById('input_' + id + '_toggle');
-        if (toggle && getCookie('lastparam_input_' + id + '_toggle') === null) {
-            toggle.checked = true;
+        if (!toggle) {
+            continue;
+        }
+
+        let saved = localStorage.getItem('pixai_toggle_' + id);
+        let shouldBeOn = true;
+        if (saved == 'false') {
+            shouldBeOn = false;
+        }
+
+        if (toggle.checked != shouldBeOn) {
+            toggle.checked = shouldBeOn;
             if (typeof doToggleEnable == 'function') {
                 doToggleEnable('input_' + id);
             }
         }
+
+        if (shouldBeOn) {
+            let days = typeof getParamMemoryDays == 'function' ? getParamMemoryDays() : 1000;
+            setCookie('lastparam_input_' + id + '_toggle', 'true', days);
+            let range = document.getElementById('input_' + id + '_rangeslider');
+            if (range && typeof updateRangeStyle == 'function') {
+                updateRangeStyle(range);
+            }
+        }
+
+        if (!toggle.dataset.pixaiTracked) {
+            toggle.dataset.pixaiTracked = 'true';
+            toggle.addEventListener('change', () => {
+                localStorage.setItem('pixai_toggle_' + id, toggle.checked ? 'true' : 'false');
+            });
+        }
     }
+
     for (let id of defaultsOff) {
         let toggle = document.getElementById('input_' + id + '_toggle');
-        if (toggle && getCookie('lastparam_input_' + id + '_toggle') === null) {
-            toggle.checked = false;
+        if (!toggle) {
+            continue;
+        }
+
+        let saved = localStorage.getItem('pixai_toggle_' + id);
+        let shouldBeOn = false;
+        if (saved == 'true') {
+            shouldBeOn = true;
+        }
+
+        if (toggle.checked != shouldBeOn) {
+            toggle.checked = shouldBeOn;
             if (typeof doToggleEnable == 'function') {
                 doToggleEnable('input_' + id);
             }
+        }
+
+        if (shouldBeOn) {
+            let days = typeof getParamMemoryDays == 'function' ? getParamMemoryDays() : 1000;
+            setCookie('lastparam_input_' + id + '_toggle', 'true', days);
+            let range = document.getElementById('input_' + id + '_rangeslider');
+            if (range && typeof updateRangeStyle == 'function') {
+                updateRangeStyle(range);
+            }
+        }
+
+        if (!toggle.dataset.pixaiTracked) {
+            toggle.dataset.pixaiTracked = 'true';
+            toggle.addEventListener('change', () => {
+                localStorage.setItem('pixai_toggle_' + id, toggle.checked ? 'true' : 'false');
+            });
         }
     }
 }
@@ -1053,5 +1108,6 @@ function initPixaiDefaultToggles() {
 if (typeof postParamBuildSteps !== 'undefined') {
     postParamBuildSteps.push(initPixaiDefaultToggles);
 }
-setTimeout(initPixaiDefaultToggles, 250);
+setTimeout(initPixaiDefaultToggles, 100);
+setTimeout(initPixaiDefaultToggles, 350);
 setTimeout(initPixaiDefaultToggles, 1000);
