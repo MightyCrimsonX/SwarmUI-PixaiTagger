@@ -10,19 +10,18 @@ Built with direct **GPU acceleration** via the SwarmUI ComfyUI backend and inclu
 
 - **🚀 100% GPU Accelerated**: Executes directly in the ComfyUI PyTorch CUDA runtime (float16) on your graphics card for blazing fast tagging (~50ms) without CPU bottlenecks.
 - **👗 Dedicated Clothing Threshold**: Segregates attire, garments, and accessories from general tags, allowing you to set a custom sensitivity specifically for clothing items.
-- **🎛️ Per-Category Threshold Sliders**:
-  - **General threshold** (default: `0.17`)
-  - **Character threshold** (default: `0.27`)
-  - **Style threshold** (default: `0.15`)
-  - **Copyright / series threshold** (default: `0.24`)
-  - **Clothing threshold** (default: `0.17`)
-  - **Meta threshold** (default: `0.17`)
-  - **Rating threshold** (default: `0.41`)
+- **🎛️ Toggleable Per-Category Threshold Sliders**:
+  - **General threshold** (default: `0.17`, toggled **ON**)
+  - **Character threshold** (default: `0.27`, toggled **ON**)
+  - **Clothing threshold** (default: `0.17`, toggled **ON**)
+  - **Style threshold** (default: `0.15`, toggled **OFF**)
+  - **Copyright / series threshold** (default: `0.24`, toggled **OFF**)
 - **🖱️ Drag & Drop Studio Tool**:
   - Drag and drop any image file directly onto the studio dropzone.
   - Paste images from your clipboard (`Ctrl+V`).
   - View image dimensions and thumbnail preview.
   - Interactive breakdown by category with confidence scores (e.g. `98%`).
+  - Checkboxes on every threshold card to easily toggle categories ON or OFF.
   - 1-click copy for individual tags or full prompt output.
   - Direct insertion to prompt box (*Replace*, *Prepend*, or *Append*).
 - **👁️ Image Viewer Integration**:
@@ -56,8 +55,8 @@ Built with direct **GPU acceleration** via the SwarmUI ComfyUI backend and inclu
 ### 2. Interactive Studio Tool
 1. In the viewer, click **⚙️ PixAI Studio** (or open via the tool button).
 2. Drag and drop an image or press `Ctrl+V` to paste an image.
-3. Fine-tune any category slider (General, Character, Style, Copyright, Clothing, Meta, Rating).
-4. Toggle categories on or off using the **Categories in combined tags** pill buttons.
+3. Fine-tune any category slider (General, Character, Clothing, Style, Copyright).
+4. Toggle categories on or off using the check buttons on each card or the category pill buttons.
 5. Click **🌸 Tag Image on GPU** to see instant categorized tags with confidence badges!
 
 ### 3. Generation Prompt Tag

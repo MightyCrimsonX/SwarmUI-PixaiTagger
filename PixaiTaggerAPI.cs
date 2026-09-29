@@ -47,12 +47,6 @@ public static class PixaiTaggerAPI
     /// <summary>Default confidence threshold for clothing tags.</summary>
     public const float DefaultClothingThreshold = 0.17f;
 
-    /// <summary>Default confidence threshold for meta tags.</summary>
-    public const float DefaultMetaThreshold = 0.17f;
-
-    /// <summary>Default confidence threshold for rating tags.</summary>
-    public const float DefaultRatingThreshold = 0.41f;
-
     /// <summary>Matches a trailing prompt-weight suffix like ":1.3" on a tag's core text.</summary>
     private static readonly Regex TrailingWeightPattern = new(@":\s*\d+(?:\.\d+)?\s*$", RegexOptions.Compiled);
 
@@ -382,18 +376,14 @@ public static class PixaiTaggerAPI
         string imageBase64,
         float generalThreshold = DefaultGeneralThreshold,
         float characterThreshold = DefaultCharacterThreshold,
+        float clothingThreshold = DefaultClothingThreshold,
         float styleThreshold = DefaultStyleThreshold,
         float copyrightThreshold = DefaultCopyrightThreshold,
-        float clothingThreshold = DefaultClothingThreshold,
-        float metaThreshold = DefaultMetaThreshold,
-        float ratingThreshold = DefaultRatingThreshold,
         bool enableGeneral = true,
         bool enableCharacter = true,
-        bool enableStyle = true,
-        bool enableCopyright = true,
         bool enableClothing = true,
-        bool enableMeta = false,
-        bool enableRating = false,
+        bool enableStyle = false,
+        bool enableCopyright = false,
         bool includeConfidence = false,
         bool keepUnderscores = false,
         string filterTags = "")
@@ -464,18 +454,14 @@ public static class PixaiTaggerAPI
                         ["images"] = new JArray { "1", 0 },
                         ["general_threshold"] = generalThreshold,
                         ["character_threshold"] = characterThreshold,
+                        ["clothing_threshold"] = clothingThreshold,
                         ["style_threshold"] = styleThreshold,
                         ["copyright_threshold"] = copyrightThreshold,
-                        ["clothing_threshold"] = clothingThreshold,
-                        ["meta_threshold"] = metaThreshold,
-                        ["rating_threshold"] = ratingThreshold,
                         ["enable_general"] = enableGeneral,
                         ["enable_character"] = enableCharacter,
+                        ["enable_clothing"] = enableClothing,
                         ["enable_style"] = enableStyle,
                         ["enable_copyright"] = enableCopyright,
-                        ["enable_clothing"] = enableClothing,
-                        ["enable_meta"] = enableMeta,
-                        ["enable_rating"] = enableRating,
                         ["include_confidence"] = includeConfidence,
                         ["keep_underscores"] = keepUnderscores,
                         ["exclude_tags"] = "",
@@ -491,25 +477,6 @@ public static class PixaiTaggerAPI
                 ?? throw new SwarmUserErrorException("No available ComfyUI Backend to run this operation");
 
             T2IParamInput customInput = new(session);
-            bool loggedExecution = false;
-            customInput.ReceiveRawBackendData = (key, data) =>
-            {
-                if (key == "comfy_websocket" && data is byte[] bytes && bytes.Length > 0)
-                {
-                    try
-                    {
-                        string wsText = Encoding.UTF8.GetString(bytes);
-                        if (wsText.Contains("\"executing\"") && wsText.Contains("\"2\"") && !loggedExecution)
-                        {
-                            loggedExecution = true;
-                            Logs.Info("[PixAITagger] Executing PixAI Tagger v1.0 inference on GPU...");
-                        }
-                    }
-                    catch
-                    {
-                    }
-                }
-            };
 
             using Session.GenClaim claim = session.Claim(liveGens: 1);
             await backend.AwaitJobLive(workflow.ToString(), "0", _ => { }, customInput, Program.GlobalProgramCancel);
@@ -534,8 +501,6 @@ public static class PixaiTaggerAPI
             string style = parsedResult["style"]?.ToString() ?? "";
             string clothing = parsedResult["clothing"]?.ToString() ?? "";
             string general = parsedResult["general"]?.ToString() ?? "";
-            string meta = parsedResult["meta"]?.ToString() ?? "";
-            string rating = parsedResult["rating"]?.ToString() ?? "";
 
             if (!string.IsNullOrWhiteSpace(filterTags))
             {
@@ -545,8 +510,6 @@ public static class PixaiTaggerAPI
                 style = ApplyFilterTagRules(style, filterRules);
                 clothing = ApplyFilterTagRules(clothing, filterRules);
                 general = ApplyFilterTagRules(general, filterRules);
-                meta = ApplyFilterTagRules(meta, filterRules);
-                rating = ApplyFilterTagRules(rating, filterRules);
             }
 
             long elapsedMs = Environment.TickCount64 - startTime;
@@ -557,10 +520,8 @@ public static class PixaiTaggerAPI
                 Logs.Init($"[PixAITagger] Model 'pixai-labs/pixai-tagger-v1.0' downloaded and cached successfully to: {modelCacheDir}");
             }
 
-            double gpuInferenceSec = parsedResult["inference_time_sec"]?.Value<double>() ?? 0;
-            string gpuDetail = gpuInferenceSec > 0 ? $" (GPU inference: {gpuInferenceSec:0.00}s)" : "";
             int tagCount = combined.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
-            Logs.Info($"[PixAITagger] Tag generation completed in {elapsedSec:0.00}s{gpuDetail}. Extracted {tagCount} tags.");
+            Logs.Info($"[PixAITagger] Tag generation completed in {elapsedSec:0.00}s. Extracted {tagCount} tags.");
 
             return new JObject
             {
@@ -571,8 +532,6 @@ public static class PixaiTaggerAPI
                 ["style"] = style,
                 ["clothing"] = clothing,
                 ["general"] = general,
-                ["meta"] = meta,
-                ["rating"] = rating,
                 ["details"] = parsedResult["details"]
             };
         }

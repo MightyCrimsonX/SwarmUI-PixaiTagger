@@ -172,18 +172,14 @@ class PixaiTaggerGenerate:
                 "images": ("IMAGE",),
                 "general_threshold": ("FLOAT", {"default": 0.17, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "character_threshold": ("FLOAT", {"default": 0.27, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "clothing_threshold": ("FLOAT", {"default": 0.17, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "style_threshold": ("FLOAT", {"default": 0.15, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "copyright_threshold": ("FLOAT", {"default": 0.24, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "clothing_threshold": ("FLOAT", {"default": 0.17, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "meta_threshold": ("FLOAT", {"default": 0.17, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "rating_threshold": ("FLOAT", {"default": 0.41, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "enable_general": ("BOOLEAN", {"default": True}),
                 "enable_character": ("BOOLEAN", {"default": True}),
-                "enable_style": ("BOOLEAN", {"default": True}),
-                "enable_copyright": ("BOOLEAN", {"default": True}),
                 "enable_clothing": ("BOOLEAN", {"default": True}),
-                "enable_meta": ("BOOLEAN", {"default": False}),
-                "enable_rating": ("BOOLEAN", {"default": False}),
+                "enable_style": ("BOOLEAN", {"default": False}),
+                "enable_copyright": ("BOOLEAN", {"default": False}),
                 "include_confidence": ("BOOLEAN", {"default": False}),
                 "keep_underscores": ("BOOLEAN", {"default": False}),
                 "exclude_tags": ("STRING", {"multiline": True, "default": ""}),
@@ -193,8 +189,8 @@ class PixaiTaggerGenerate:
             }
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING")
-    RETURN_NAMES = ("combined_tags", "character", "copyright", "style", "clothing", "general", "meta", "rating")
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("combined_tags", "character", "copyright", "style", "clothing", "general")
     FUNCTION = "generate_tags"
     CATEGORY = "ImageTagging/PixAI"
 
@@ -203,18 +199,14 @@ class PixaiTaggerGenerate:
         images,
         general_threshold,
         character_threshold,
+        clothing_threshold,
         style_threshold,
         copyright_threshold,
-        clothing_threshold,
-        meta_threshold,
-        rating_threshold,
         enable_general,
         enable_character,
+        enable_clothing,
         enable_style,
         enable_copyright,
-        enable_clothing,
-        enable_meta,
-        enable_rating,
         include_confidence,
         keep_underscores,
         exclude_tags="",
@@ -232,8 +224,6 @@ class PixaiTaggerGenerate:
             "character": character_threshold,
             "style": style_threshold,
             "copyright": copyright_threshold,
-            "meta": meta_threshold,
-            "rating": rating_threshold,
         }
 
         # Convert image batch to PIL
@@ -249,8 +239,6 @@ class PixaiTaggerGenerate:
         all_style = []
         all_clothing = []
         all_general = []
-        all_meta = []
-        all_rating = []
         details_summary = None
 
         for result in raw_results:
@@ -281,14 +269,6 @@ class PixaiTaggerGenerate:
                 (tag, score) for tag, score in cats.get("copyright", {}).items()
                 if score >= copyright_threshold and enable_copyright
             ]
-            meta_items = [
-                (tag, score) for tag, score in cats.get("meta", {}).items()
-                if score >= meta_threshold and enable_meta
-            ]
-            rating_items = [
-                (tag, score) for tag, score in cats.get("rating", {}).items()
-                if score >= rating_threshold and enable_rating
-            ]
 
             # Format each category
             char_list = format_tag_items(character_items, excluded, replace_underscore, include_confidence)
@@ -296,13 +276,11 @@ class PixaiTaggerGenerate:
             style_list = format_tag_items(style_items, excluded, replace_underscore, include_confidence)
             cloth_list = format_tag_items(clothing_items, excluded, replace_underscore, include_confidence)
             gen_list = format_tag_items(general_items, excluded, replace_underscore, include_confidence)
-            meta_list = format_tag_items(meta_items, excluded, replace_underscore, include_confidence)
-            rating_list = format_tag_items(rating_items, excluded, replace_underscore, include_confidence)
 
             # Combined prompt in natural Danbooru ordering:
-            # character -> copyright -> style -> clothing -> general -> meta -> rating
+            # character -> copyright -> style -> clothing -> general
             combined_elements = []
-            for tag_list in (char_list, copy_list, style_list, cloth_list, gen_list, meta_list, rating_list):
+            for tag_list in (char_list, copy_list, style_list, cloth_list, gen_list):
                 combined_elements.extend(tag_list)
 
             combined_str = ", ".join(combined_elements)
@@ -312,8 +290,6 @@ class PixaiTaggerGenerate:
             all_style.append(", ".join(style_list))
             all_clothing.append(", ".join(cloth_list))
             all_general.append(", ".join(gen_list))
-            all_meta.append(", ".join(meta_list))
-            all_rating.append(", ".join(rating_list))
 
             # Store structured details for SwarmUI
             if details_summary is None:
@@ -323,8 +299,6 @@ class PixaiTaggerGenerate:
                     "style": [{"tag": tag.replace("_", " ") if replace_underscore else tag, "score": round(score, 4)} for tag, score in sorted(style_items, key=lambda x: x[1], reverse=True)],
                     "clothing": [{"tag": tag.replace("_", " ") if replace_underscore else tag, "score": round(score, 4)} for tag, score in sorted(clothing_items, key=lambda x: x[1], reverse=True)],
                     "general": [{"tag": tag.replace("_", " ") if replace_underscore else tag, "score": round(score, 4)} for tag, score in sorted(general_items, key=lambda x: x[1], reverse=True)],
-                    "meta": [{"tag": tag.replace("_", " ") if replace_underscore else tag, "score": round(score, 4)} for tag, score in sorted(meta_items, key=lambda x: x[1], reverse=True)],
-                    "rating": [{"tag": tag.replace("_", " ") if replace_underscore else tag, "score": round(score, 4)} for tag, score in sorted(rating_items, key=lambda x: x[1], reverse=True)],
                 }
 
         # If requested by SwarmUI, write the structured JSON output to file
@@ -339,8 +313,6 @@ class PixaiTaggerGenerate:
                     "style": all_style[0] if all_style else "",
                     "clothing": all_clothing[0] if all_clothing else "",
                     "general": all_general[0] if all_general else "",
-                    "meta": all_meta[0] if all_meta else "",
-                    "rating": all_rating[0] if all_rating else "",
                     "details": details_summary or {}
                 }
                 with open(output_path, "w", encoding="utf-8") as f:
@@ -355,8 +327,6 @@ class PixaiTaggerGenerate:
             all_style[0] if all_style else "",
             all_clothing[0] if all_clothing else "",
             all_general[0] if all_general else "",
-            all_meta[0] if all_meta else "",
-            all_rating[0] if all_rating else "",
         )
         return {"ui": {"tags": [all_combined[0] if all_combined else ""]}, "result": res_tuple}
 

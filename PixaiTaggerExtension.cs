@@ -29,20 +29,14 @@ public class PixaiTaggerExtension : Extension
     /// <summary>Confidence threshold for character tags.</summary>
     public static T2IRegisteredParam<double> CharacterThresholdParam;
 
+    /// <summary>Confidence threshold for clothing and attire tags.</summary>
+    public static T2IRegisteredParam<double> ClothingThresholdParam;
+
     /// <summary>Confidence threshold for art style tags.</summary>
     public static T2IRegisteredParam<double> StyleThresholdParam;
 
     /// <summary>Confidence threshold for copyright / series tags.</summary>
     public static T2IRegisteredParam<double> CopyrightThresholdParam;
-
-    /// <summary>Confidence threshold for clothing and attire tags.</summary>
-    public static T2IRegisteredParam<double> ClothingThresholdParam;
-
-    /// <summary>Confidence threshold for meta tags.</summary>
-    public static T2IRegisteredParam<double> MetaThresholdParam;
-
-    /// <summary>Confidence threshold for rating tags.</summary>
-    public static T2IRegisteredParam<double> RatingThresholdParam;
 
     /// <summary>Whether to include numerical confidence scores in the output tags.</summary>
     public static T2IRegisteredParam<bool> IncludeConfidenceParam;
@@ -71,11 +65,37 @@ public class PixaiTaggerExtension : Extension
     }
 
     /// <summary>Parses prompt tag positional arguments: [general_threshold, character_threshold, clothing_threshold].</summary>
-    private static void ResolvePromptTagThresholds(string data, T2IParamInput input, out float genThresh, out float charThresh, out float clothThresh)
+    private static void ResolvePromptTagThresholds(string data, T2IParamInput input,
+        out float genThresh, out bool enableGen,
+        out float charThresh, out bool enableChar,
+        out float clothThresh, out bool enableCloth,
+        out float styleThresh, out bool enableStyle,
+        out float copyThresh, out bool enableCopy)
     {
-        genThresh = input.TryGet(GeneralThresholdParam, out double g) ? (float)g : PixaiTaggerAPI.DefaultGeneralThreshold;
-        charThresh = input.TryGet(CharacterThresholdParam, out double c) ? (float)c : PixaiTaggerAPI.DefaultCharacterThreshold;
-        clothThresh = input.TryGet(ClothingThresholdParam, out double cl) ? (float)cl : PixaiTaggerAPI.DefaultClothingThreshold;
+        enableGen = input.TryGet(GeneralThresholdParam, out double g);
+        genThresh = enableGen ? (float)g : PixaiTaggerAPI.DefaultGeneralThreshold;
+
+        enableChar = input.TryGet(CharacterThresholdParam, out double c);
+        charThresh = enableChar ? (float)c : PixaiTaggerAPI.DefaultCharacterThreshold;
+
+        enableCloth = input.TryGet(ClothingThresholdParam, out double cl);
+        clothThresh = enableCloth ? (float)cl : PixaiTaggerAPI.DefaultClothingThreshold;
+
+        enableStyle = input.TryGet(StyleThresholdParam, out double s);
+        styleThresh = enableStyle ? (float)s : PixaiTaggerAPI.DefaultStyleThreshold;
+
+        enableCopy = input.TryGet(CopyrightThresholdParam, out double cp);
+        copyThresh = enableCopy ? (float)cp : PixaiTaggerAPI.DefaultCopyrightThreshold;
+
+        // If none of the parameters were toggled in input (e.g. prompt tag used alone), fall back to defaults
+        if (!enableGen && !enableChar && !enableCloth && !enableStyle && !enableCopy)
+        {
+            enableGen = true;
+            enableChar = true;
+            enableCloth = true;
+            enableStyle = false;
+            enableCopy = false;
+        }
 
         if (string.IsNullOrWhiteSpace(data))
         {
@@ -86,14 +106,17 @@ public class PixaiTaggerExtension : Extension
         if (parts.Length > 0 && float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float parsedG))
         {
             genThresh = Math.Clamp(parsedG, 0f, 1f);
+            enableGen = true;
         }
         if (parts.Length > 1 && float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float parsedC))
         {
             charThresh = Math.Clamp(parsedC, 0f, 1f);
+            enableChar = true;
         }
         if (parts.Length > 2 && float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float parsedCl))
         {
             clothThresh = Math.Clamp(parsedCl, 0f, 1f);
+            enableCloth = true;
         }
     }
 
@@ -105,12 +128,17 @@ public class PixaiTaggerExtension : Extension
             return "";
         }
 
-        ResolvePromptTagThresholds(data, context.Input, out float genThresh, out float charThresh, out float clothThresh);
+        ResolvePromptTagThresholds(data, context.Input,
+            out float genThresh, out bool enableGen,
+            out float charThresh, out bool enableChar,
+            out float clothThresh, out bool enableCloth,
+            out float styleThresh, out bool enableStyle,
+            out float copyThresh, out bool enableCopy);
         string filterTags = context.Input.Get(FilterTagsParam, "");
         bool includeConf = context.Input.Get(IncludeConfidenceParam, false);
         bool keepUnder = context.Input.Get(KeepUnderscoresParam, false);
 
-        string cacheKey = $"{genThresh}|{charThresh}|{clothThresh}|{includeConf}|{keepUnder}|{filterTags}";
+        string cacheKey = $"{genThresh}:{enableGen}|{charThresh}:{enableChar}|{clothThresh}:{enableCloth}|{styleThresh}:{enableStyle}|{copyThresh}:{enableCopy}|{includeConf}|{keepUnder}|{filterTags}";
         Dictionary<string, string> cache = context.Input.ExtraMeta.GetOrCreate(PromptTagCacheKey, () => new Dictionary<string, string>()) as Dictionary<string, string>;
         if (cache.TryGetValue(cacheKey, out string cached))
         {
@@ -133,6 +161,13 @@ public class PixaiTaggerExtension : Extension
                 generalThreshold: genThresh,
                 characterThreshold: charThresh,
                 clothingThreshold: clothThresh,
+                styleThreshold: styleThresh,
+                copyrightThreshold: copyThresh,
+                enableGeneral: enableGen,
+                enableCharacter: enableChar,
+                enableClothing: enableCloth,
+                enableStyle: enableStyle,
+                enableCopyright: enableCopy,
                 includeConfidence: includeConf,
                 keepUnderscores: keepUnder,
                 filterTags: filterTags
@@ -180,6 +215,7 @@ public class PixaiTaggerExtension : Extension
             Min: 0.0,
             Max: 1.0,
             Step: 0.01,
+            Toggleable: true,
             Group: PixaiTaggerGroup,
             OrderPriority: 1
         ));
@@ -191,30 +227,9 @@ public class PixaiTaggerExtension : Extension
             Min: 0.0,
             Max: 1.0,
             Step: 0.01,
+            Toggleable: true,
             Group: PixaiTaggerGroup,
             OrderPriority: 2
-        ));
-
-        StyleThresholdParam = T2IParamTypes.Register<double>(new(
-            Name: "[PixAI] Style Threshold",
-            Description: "Minimum confidence threshold for art style and aesthetic tags. Default: 0.15",
-            Default: "0.15",
-            Min: 0.0,
-            Max: 1.0,
-            Step: 0.01,
-            Group: PixaiTaggerGroup,
-            OrderPriority: 3
-        ));
-
-        CopyrightThresholdParam = T2IParamTypes.Register<double>(new(
-            Name: "[PixAI] Copyright / Series Threshold",
-            Description: "Minimum confidence threshold for series, franchise, and work IP tags. Default: 0.24",
-            Default: "0.24",
-            Min: 0.0,
-            Max: 1.0,
-            Step: 0.01,
-            Group: PixaiTaggerGroup,
-            OrderPriority: 4
         ));
 
         ClothingThresholdParam = T2IParamTypes.Register<double>(new(
@@ -224,30 +239,33 @@ public class PixaiTaggerExtension : Extension
             Min: 0.0,
             Max: 1.0,
             Step: 0.01,
+            Toggleable: true,
+            Group: PixaiTaggerGroup,
+            OrderPriority: 3
+        ));
+
+        StyleThresholdParam = T2IParamTypes.Register<double>(new(
+            Name: "[PixAI] Style Threshold",
+            Description: "Minimum confidence threshold for art style and aesthetic tags. Default: 0.15",
+            Default: "0.15",
+            Min: 0.0,
+            Max: 1.0,
+            Step: 0.01,
+            Toggleable: true,
+            Group: PixaiTaggerGroup,
+            OrderPriority: 4
+        ));
+
+        CopyrightThresholdParam = T2IParamTypes.Register<double>(new(
+            Name: "[PixAI] Copyright / Series Threshold",
+            Description: "Minimum confidence threshold for series, franchise, and work IP tags. Default: 0.24",
+            Default: "0.24",
+            Min: 0.0,
+            Max: 1.0,
+            Step: 0.01,
+            Toggleable: true,
             Group: PixaiTaggerGroup,
             OrderPriority: 5
-        ));
-
-        MetaThresholdParam = T2IParamTypes.Register<double>(new(
-            Name: "[PixAI] Meta Threshold",
-            Description: "Minimum confidence threshold for metadata tags (highres, official art, etc.). Default: 0.17",
-            Default: "0.17",
-            Min: 0.0,
-            Max: 1.0,
-            Step: 0.01,
-            Group: PixaiTaggerGroup,
-            OrderPriority: 6
-        ));
-
-        RatingThresholdParam = T2IParamTypes.Register<double>(new(
-            Name: "[PixAI] Rating Threshold",
-            Description: "Minimum confidence threshold for content rating tags (rating:general, rating:sensitive, rating:questionable, rating:explicit). Default: 0.41",
-            Default: "0.41",
-            Min: 0.0,
-            Max: 1.0,
-            Step: 0.01,
-            Group: PixaiTaggerGroup,
-            OrderPriority: 7
         ));
 
         IncludeConfidenceParam = T2IParamTypes.Register<bool>(new(
@@ -255,7 +273,7 @@ public class PixaiTaggerExtension : Extension
             Description: "Appends confidence scores to tags (e.g. tag:0.95).",
             Default: "false",
             Group: PixaiTaggerGroup,
-            OrderPriority: 8
+            OrderPriority: 6
         ));
 
         KeepUnderscoresParam = T2IParamTypes.Register<bool>(new(
@@ -263,7 +281,7 @@ public class PixaiTaggerExtension : Extension
             Description: "Preserves underscores in tag names (e.g. school_uniform) instead of converting them to spaces.",
             Default: "false",
             Group: PixaiTaggerGroup,
-            OrderPriority: 9
+            OrderPriority: 7
         ));
 
         FilterTagsParam = T2IParamTypes.Register<string>(new(
@@ -271,7 +289,7 @@ public class PixaiTaggerExtension : Extension
             Description: "Comma-separated list of tags to exclude or replace. Format: 'tag_to_exclude', or 'original:replacement'. Supports wildcard patterns like 'hair*' or '*skirt'.",
             Default: "",
             Group: PixaiTaggerGroup,
-            OrderPriority: 10
+            OrderPriority: 8
         ));
 
         InsertModeParam = T2IParamTypes.Register<string>(new(
@@ -280,7 +298,7 @@ public class PixaiTaggerExtension : Extension
             Default: "replace",
             GetValues: _ => ["replace///Replace prompt", "prepend///Prepend to prompt", "append///Append to prompt"],
             Group: PixaiTaggerGroup,
-            OrderPriority: 11
+            OrderPriority: 9
         ));
 
         T2IPromptHandling.PromptTagProcessors["pixaitagger"] = GeneratePromptTagTags;

@@ -11,24 +11,20 @@ class PixaiTaggerHelper {
         this.defaults = {
             general: 0.17,
             character: 0.27,
-            style: 0.15,
-            copyright: 0.24,
             clothing: 0.17,
-            meta: 0.17,
-            rating: 0.41
+            style: 0.15,
+            copyright: 0.24
         };
 
         this.thresholds = Object.assign({}, this.defaults);
         this.includeConfidence = false;
         this.keepUnderscores = false;
         this.categories = {
-            character: true,
-            copyright: true,
-            style: true,
-            clothing: true,
             general: true,
-            meta: false,
-            rating: false
+            character: true,
+            clothing: true,
+            style: false,
+            copyright: false
         };
 
         this.currentImageBase64 = null;
@@ -74,18 +70,14 @@ class PixaiTaggerHelper {
             imageBase64: base64Data,
             generalThreshold: this.thresholds.general,
             characterThreshold: this.thresholds.character,
+            clothingThreshold: this.thresholds.clothing,
             styleThreshold: this.thresholds.style,
             copyrightThreshold: this.thresholds.copyright,
-            clothingThreshold: this.thresholds.clothing,
-            metaThreshold: this.thresholds.meta,
-            ratingThreshold: this.thresholds.rating,
             enableGeneral: this.categories.general,
             enableCharacter: this.categories.character,
+            enableClothing: this.categories.clothing,
             enableStyle: this.categories.style,
             enableCopyright: this.categories.copyright,
-            enableClothing: this.categories.clothing,
-            enableMeta: this.categories.meta,
-            enableRating: this.categories.rating,
             includeConfidence: this.includeConfidence,
             keepUnderscores: this.keepUnderscores,
             filterTags: this.getParamValue('pixaifiltertags', '')
@@ -117,7 +109,7 @@ class PixaiTaggerHelper {
     }
 
     /**
-     * Synchronizes threshold values from the T2I parameter controls if they exist.
+     * Synchronizes threshold values and toggle states from the T2I parameter controls if they exist.
      */
     syncFromT2IParams() {
         let parse = (id, fallback) => {
@@ -131,13 +123,25 @@ class PixaiTaggerHelper {
             return fallback;
         };
 
+        let parseToggled = (id, fallback) => {
+            let toggle = document.getElementById('input_' + id + '_toggle');
+            if (toggle) {
+                return toggle.checked;
+            }
+            return fallback;
+        };
+
         this.thresholds.general = parse('pixaigeneralthreshold', this.defaults.general);
         this.thresholds.character = parse('pixaicharacterthreshold', this.defaults.character);
-        this.thresholds.style = parse('pixaistylethreshold', this.defaults.style);
-        this.thresholds.copyright = parse('pixaicopyrightthreshold', this.defaults.copyright);
         this.thresholds.clothing = parse('pixaiclothingthreshold', this.defaults.clothing);
-        this.thresholds.meta = parse('pixaimetathreshold', this.defaults.meta);
-        this.thresholds.rating = parse('pixairatingthreshold', this.defaults.rating);
+        this.thresholds.style = parse('pixaistylethreshold', this.defaults.style);
+        this.thresholds.copyright = parse('pixaicopyrightseriesthreshold', this.defaults.copyright);
+
+        this.categories.general = parseToggled('pixaigeneralthreshold', this.categories.general);
+        this.categories.character = parseToggled('pixaicharacterthreshold', this.categories.character);
+        this.categories.clothing = parseToggled('pixaiclothingthreshold', this.categories.clothing);
+        this.categories.style = parseToggled('pixaistylethreshold', this.categories.style);
+        this.categories.copyright = parseToggled('pixaicopyrightseriesthreshold', this.categories.copyright);
 
         let confElem = document.getElementById('input_pixaiincludeconfidence');
         if (confElem) {
@@ -150,7 +154,7 @@ class PixaiTaggerHelper {
     }
 
     /**
-     * Synchronizes threshold values to the T2I parameter controls if they exist.
+     * Synchronizes threshold values and toggle states to the T2I parameter controls if they exist.
      */
     syncToT2IParams() {
         let set = (id, val) => {
@@ -161,13 +165,30 @@ class PixaiTaggerHelper {
             }
         };
 
+        let setToggled = (id, toggled) => {
+            let toggle = document.getElementById('input_' + id + '_toggle');
+            if (toggle && toggle.checked != toggled) {
+                toggle.checked = toggled;
+                if (typeof doToggleEnable == 'function') {
+                    doToggleEnable('input_' + id);
+                }
+                else {
+                    triggerChangeFor(toggle);
+                }
+            }
+        };
+
         set('pixaigeneralthreshold', this.thresholds.general);
         set('pixaicharacterthreshold', this.thresholds.character);
-        set('pixaistylethreshold', this.thresholds.style);
-        set('pixaicopyrightthreshold', this.thresholds.copyright);
         set('pixaiclothingthreshold', this.thresholds.clothing);
-        set('pixaimetathreshold', this.thresholds.meta);
-        set('pixairatingthreshold', this.thresholds.rating);
+        set('pixaistylethreshold', this.thresholds.style);
+        set('pixaicopyrightseriesthreshold', this.thresholds.copyright);
+
+        setToggled('pixaigeneralthreshold', this.categories.general);
+        setToggled('pixaicharacterthreshold', this.categories.character);
+        setToggled('pixaiclothingthreshold', this.categories.clothing);
+        setToggled('pixaistylethreshold', this.categories.style);
+        setToggled('pixaicopyrightseriesthreshold', this.categories.copyright);
 
         let confElem = document.getElementById('input_pixaiincludeconfidence');
         if (confElem) {
@@ -345,16 +366,38 @@ class PixaiTaggerHelper {
      * Synchronizes the studio slider and input values with the current helper state.
      */
     updateStudioUIFromState() {
-        let cats = ['general', 'character', 'style', 'copyright', 'clothing', 'meta', 'rating'];
+        let cats = ['general', 'character', 'clothing', 'style', 'copyright'];
         for (let cat of cats) {
             let val = this.thresholds[cat];
+            let isEnabled = !!this.categories[cat];
+
             let slider = document.getElementById('pixai_slider_' + cat);
             let input = document.getElementById('pixai_num_' + cat);
+            let check = document.getElementById('pixai_studio_toggle_' + cat);
+            let resetBtn = document.getElementById('pixai_reset_' + cat);
+            let card = check ? check.closest('.pixai-tagger-card') : null;
+
             if (slider) {
                 slider.value = val;
+                slider.disabled = !isEnabled;
             }
             if (input) {
                 input.value = Number(val).toFixed(2);
+                input.disabled = !isEnabled;
+            }
+            if (resetBtn) {
+                resetBtn.disabled = !isEnabled;
+            }
+            if (check) {
+                check.checked = isEnabled;
+            }
+            if (card) {
+                if (isEnabled) {
+                    card.classList.remove('disabled-card');
+                }
+                else {
+                    card.classList.add('disabled-card');
+                }
             }
         }
 
@@ -370,11 +413,14 @@ class PixaiTaggerHelper {
         for (let cat of cats) {
             let pill = document.getElementById('pixai_pill_' + cat);
             if (pill) {
+                let pillLabel = pill.dataset.label || cat;
                 if (this.categories[cat]) {
                     pill.classList.add('active');
+                    pill.textContent = '✓ ' + pillLabel;
                 }
                 else {
                     pill.classList.remove('active');
+                    pill.textContent = pillLabel;
                 }
             }
         }
@@ -411,7 +457,7 @@ class PixaiTaggerHelper {
         // Subtitle / instructions text
         let desc = document.createElement('p');
         desc.className = 'pixai-tagger-title-desc';
-        desc.textContent = 'The defaults use the recommended per-category settings. Raise a threshold for fewer, more confident tags, or lower it to include more possibilities.';
+        desc.textContent = 'Enable or disable each category threshold with the checkbox. Raise a threshold for fewer, more confident tags, or lower it to include more possibilities.';
         modalContent.appendChild(desc);
 
         // Sliders Grid
@@ -419,25 +465,41 @@ class PixaiTaggerHelper {
         grid.className = 'pixai-tagger-grid';
 
         let sliderSpecs = [
-            { id: 'general', label: 'General threshold', def: this.defaults.general, isCloth: false },
-            { id: 'character', label: 'Character threshold', def: this.defaults.character, isCloth: false },
-            { id: 'style', label: 'Style threshold', def: this.defaults.style, isCloth: false },
-            { id: 'copyright', label: 'Copyright / series threshold', def: this.defaults.copyright, isCloth: false },
-            { id: 'clothing', label: 'Clothing threshold', def: this.defaults.clothing, isCloth: true },
-            { id: 'meta', label: 'Meta threshold', def: this.defaults.meta, isCloth: false },
-            { id: 'rating', label: 'Rating threshold', def: this.defaults.rating, isCloth: false }
+            { id: 'general', label: 'General threshold', pillLabel: 'General', def: this.defaults.general, isCloth: false },
+            { id: 'character', label: 'Character threshold', pillLabel: 'Character', def: this.defaults.character, isCloth: false },
+            { id: 'clothing', label: 'Clothing threshold', pillLabel: 'Clothing', def: this.defaults.clothing, isCloth: true },
+            { id: 'style', label: 'Style threshold', pillLabel: 'Style', def: this.defaults.style, isCloth: false },
+            { id: 'copyright', label: 'Copyright / series threshold', pillLabel: 'Copyright / series', def: this.defaults.copyright, isCloth: false }
         ];
 
         for (let spec of sliderSpecs) {
+            let isEnabled = !!this.categories[spec.id];
             let card = document.createElement('div');
-            card.className = 'pixai-tagger-card';
+            card.className = 'pixai-tagger-card' + (isEnabled ? '' : ' disabled-card');
 
             let cardHeader = document.createElement('div');
             cardHeader.className = 'pixai-tagger-card-header';
 
+            let headerLeft = document.createElement('div');
+            headerLeft.className = 'pixai-tagger-card-header-left';
+
+            let checkLabel = document.createElement('label');
+            checkLabel.className = 'pixai-tagger-card-check-label';
+            checkLabel.title = 'Enable or disable ' + spec.label;
+
+            let check = document.createElement('input');
+            check.type = 'checkbox';
+            check.className = 'pixai-tagger-card-checkbox';
+            check.id = 'pixai_studio_toggle_' + spec.id;
+            check.checked = isEnabled;
+
             let badge = document.createElement('span');
             badge.className = 'pixai-tagger-badge' + (spec.isCloth ? ' pixai-tagger-badge-clothing' : '');
             badge.textContent = spec.label;
+
+            checkLabel.appendChild(check);
+            checkLabel.appendChild(badge);
+            headerLeft.appendChild(checkLabel);
 
             let valBox = document.createElement('div');
             valBox.className = 'pixai-tagger-val-box';
@@ -450,11 +512,14 @@ class PixaiTaggerHelper {
             numInput.max = '1';
             numInput.step = '0.01';
             numInput.value = Number(spec.def).toFixed(2);
+            numInput.disabled = !isEnabled;
 
             let resetBtn = document.createElement('button');
             resetBtn.className = 'pixai-tagger-reset-btn';
+            resetBtn.id = 'pixai_reset_' + spec.id;
             resetBtn.innerHTML = '&#8634;';
             resetBtn.title = 'Reset to default (' + spec.def + ')';
+            resetBtn.disabled = !isEnabled;
             resetBtn.onclick = () => {
                 this.thresholds[spec.id] = spec.def;
                 numInput.value = Number(spec.def).toFixed(2);
@@ -467,7 +532,7 @@ class PixaiTaggerHelper {
 
             valBox.appendChild(numInput);
             valBox.appendChild(resetBtn);
-            cardHeader.appendChild(badge);
+            cardHeader.appendChild(headerLeft);
             cardHeader.appendChild(valBox);
 
             let sliderContainer = document.createElement('div');
@@ -485,10 +550,37 @@ class PixaiTaggerHelper {
             slider.max = '1';
             slider.step = '0.01';
             slider.value = spec.def;
+            slider.disabled = !isEnabled;
 
             let rightBound = document.createElement('span');
             rightBound.className = 'pixai-tagger-bound-label';
             rightBound.textContent = '1';
+
+            check.onchange = () => {
+                let checked = check.checked;
+                this.categories[spec.id] = checked;
+                slider.disabled = !checked;
+                numInput.disabled = !checked;
+                resetBtn.disabled = !checked;
+                if (checked) {
+                    card.classList.remove('disabled-card');
+                }
+                else {
+                    card.classList.add('disabled-card');
+                }
+                let pill = document.getElementById('pixai_pill_' + spec.id);
+                if (pill) {
+                    if (checked) {
+                        pill.classList.add('active');
+                        pill.textContent = '✓ ' + spec.pillLabel;
+                    }
+                    else {
+                        pill.classList.remove('active');
+                        pill.textContent = spec.pillLabel;
+                    }
+                }
+                this.syncToT2IParams();
+            };
 
             slider.oninput = () => {
                 let v = parseFloat(slider.value) || 0;
@@ -569,9 +661,7 @@ class PixaiTaggerHelper {
             { id: 'copyright', label: 'Copyright / series' },
             { id: 'style', label: 'Style' },
             { id: 'clothing', label: 'Clothing' },
-            { id: 'general', label: 'General' },
-            { id: 'meta', label: 'Meta' },
-            { id: 'rating', label: 'Rating' }
+            { id: 'general', label: 'General' }
         ];
 
         for (let p of pillSpecs) {
@@ -579,10 +669,12 @@ class PixaiTaggerHelper {
             pill.type = 'button';
             pill.className = 'pixai-tagger-pill' + (this.categories[p.id] ? ' active' : '');
             pill.id = 'pixai_pill_' + p.id;
+            pill.dataset.label = p.label;
             pill.textContent = (this.categories[p.id] ? '✓ ' : '') + p.label;
             pill.onclick = () => {
                 this.categories[p.id] = !this.categories[p.id];
-                if (this.categories[p.id]) {
+                let checked = this.categories[p.id];
+                if (checked) {
                     pill.classList.add('active');
                     pill.textContent = '✓ ' + p.label;
                 }
@@ -590,6 +682,33 @@ class PixaiTaggerHelper {
                     pill.classList.remove('active');
                     pill.textContent = p.label;
                 }
+
+                let check = document.getElementById('pixai_studio_toggle_' + p.id);
+                let slider = document.getElementById('pixai_slider_' + p.id);
+                let numInput = document.getElementById('pixai_num_' + p.id);
+                let resetBtn = document.getElementById('pixai_reset_' + p.id);
+                if (check) {
+                    check.checked = checked;
+                    let cardElem = check.closest('.pixai-tagger-card');
+                    if (cardElem) {
+                        if (checked) {
+                            cardElem.classList.remove('disabled-card');
+                        }
+                        else {
+                            cardElem.classList.add('disabled-card');
+                        }
+                    }
+                }
+                if (slider) {
+                    slider.disabled = !checked;
+                }
+                if (numInput) {
+                    numInput.disabled = !checked;
+                }
+                if (resetBtn) {
+                    resetBtn.disabled = !checked;
+                }
+                this.syncToT2IParams();
             };
             pillsRow.appendChild(pill);
         }
@@ -819,9 +938,7 @@ class PixaiTaggerHelper {
                     { key: 'copyright', label: '🏷️ Copyright / Series', color: '#bb77ff' },
                     { key: 'style', label: '🏷️ Style', color: '#77aaff' },
                     { key: 'clothing', label: '👗 Clothing & Attire', color: '#ffaa44' },
-                    { key: 'general', label: '🏷️ General', color: '#77ddaa' },
-                    { key: 'meta', label: '🏷️ Meta', color: '#aaaaaa' },
-                    { key: 'rating', label: '🏷️ Rating', color: '#ff6666' }
+                    { key: 'general', label: '🏷️ General', color: '#77ddaa' }
                 ];
 
                 for (let cat of catOrder) {
@@ -904,3 +1021,37 @@ setTimeout(() => {
         }, true);
     }
 }, 0);
+
+/**
+ * Sets initial default toggle states for PixAI threshold parameters in SwarmUI if not previously configured by the user.
+ * By default: General, Character, and Clothing are ON; Style and Copyright are OFF.
+ */
+function initPixaiDefaultToggles() {
+    let defaultsOn = ['pixaigeneralthreshold', 'pixaicharacterthreshold', 'pixaiclothingthreshold'];
+    let defaultsOff = ['pixaistylethreshold', 'pixaicopyrightseriesthreshold'];
+
+    for (let id of defaultsOn) {
+        let toggle = document.getElementById('input_' + id + '_toggle');
+        if (toggle && getCookie('lastparam_input_' + id + '_toggle') === null) {
+            toggle.checked = true;
+            if (typeof doToggleEnable == 'function') {
+                doToggleEnable('input_' + id);
+            }
+        }
+    }
+    for (let id of defaultsOff) {
+        let toggle = document.getElementById('input_' + id + '_toggle');
+        if (toggle && getCookie('lastparam_input_' + id + '_toggle') === null) {
+            toggle.checked = false;
+            if (typeof doToggleEnable == 'function') {
+                doToggleEnable('input_' + id);
+            }
+        }
+    }
+}
+
+if (typeof postParamBuildSteps !== 'undefined') {
+    postParamBuildSteps.push(initPixaiDefaultToggles);
+}
+setTimeout(initPixaiDefaultToggles, 250);
+setTimeout(initPixaiDefaultToggles, 1000);

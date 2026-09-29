@@ -31,6 +31,28 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    transition: opacity 0.2s ease, filter 0.2s ease;
+}
+
+.pixai-tagger-card.disabled-card {
+    opacity: 0.42;
+    filter: grayscale(0.7);
+}
+
+.pixai-tagger-card.disabled-card .pixai-tagger-slider {
+    cursor: not-allowed;
+    background: #332b25;
+}
+
+.pixai-tagger-card.disabled-card .pixai-tagger-num-input {
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.pixai-tagger-card.disabled-card .pixai-tagger-reset-btn {
+    cursor: not-allowed;
+    opacity: 0.5;
+    pointer-events: none;
 }
 
 .pixai-tagger-card-header {
@@ -38,6 +60,27 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+}
+
+.pixai-tagger-card-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pixai-tagger-card-check-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.pixai-tagger-card-checkbox {
+    accent-color: #ff8800;
+    width: 17px;
+    height: 17px;
+    cursor: pointer;
 }
 
 .pixai-tagger-badge {
