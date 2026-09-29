@@ -176,7 +176,6 @@ public class PixaiTaggerExtension : Extension
         GeneralThresholdParam = T2IParamTypes.Register<double>(new(
             Name: "[PixAI] General Threshold",
             Description: "Minimum confidence threshold for general tags (actions, environment, objects). Default: 0.17",
-            Type: typeof(double),
             Default: "0.17",
             Min: 0.0,
             Max: 1.0,
@@ -188,7 +187,6 @@ public class PixaiTaggerExtension : Extension
         CharacterThresholdParam = T2IParamTypes.Register<double>(new(
             Name: "[PixAI] Character Threshold",
             Description: "Minimum confidence threshold for recognized character names. Default: 0.27",
-            Type: typeof(double),
             Default: "0.27",
             Min: 0.0,
             Max: 1.0,
@@ -200,7 +198,6 @@ public class PixaiTaggerExtension : Extension
         StyleThresholdParam = T2IParamTypes.Register<double>(new(
             Name: "[PixAI] Style Threshold",
             Description: "Minimum confidence threshold for art style and aesthetic tags. Default: 0.15",
-            Type: typeof(double),
             Default: "0.15",
             Min: 0.0,
             Max: 1.0,
@@ -212,7 +209,6 @@ public class PixaiTaggerExtension : Extension
         CopyrightThresholdParam = T2IParamTypes.Register<double>(new(
             Name: "[PixAI] Copyright / Series Threshold",
             Description: "Minimum confidence threshold for series, franchise, and work IP tags. Default: 0.24",
-            Type: typeof(double),
             Default: "0.24",
             Min: 0.0,
             Max: 1.0,
@@ -224,7 +220,6 @@ public class PixaiTaggerExtension : Extension
         ClothingThresholdParam = T2IParamTypes.Register<double>(new(
             Name: "[PixAI] Clothing Threshold",
             Description: "Minimum confidence threshold for clothing, garments, and attire tags. Default: 0.17",
-            Type: typeof(double),
             Default: "0.17",
             Min: 0.0,
             Max: 1.0,
@@ -236,7 +231,6 @@ public class PixaiTaggerExtension : Extension
         MetaThresholdParam = T2IParamTypes.Register<double>(new(
             Name: "[PixAI] Meta Threshold",
             Description: "Minimum confidence threshold for metadata tags (highres, official art, etc.). Default: 0.17",
-            Type: typeof(double),
             Default: "0.17",
             Min: 0.0,
             Max: 1.0,
@@ -248,7 +242,6 @@ public class PixaiTaggerExtension : Extension
         RatingThresholdParam = T2IParamTypes.Register<double>(new(
             Name: "[PixAI] Rating Threshold",
             Description: "Minimum confidence threshold for content rating tags (rating:general, rating:sensitive, rating:questionable, rating:explicit). Default: 0.41",
-            Type: typeof(double),
             Default: "0.41",
             Min: 0.0,
             Max: 1.0,
@@ -260,7 +253,6 @@ public class PixaiTaggerExtension : Extension
         IncludeConfidenceParam = T2IParamTypes.Register<bool>(new(
             Name: "[PixAI] Include Confidence Scores",
             Description: "Appends confidence scores to tags (e.g. tag:0.95).",
-            Type: typeof(bool),
             Default: "false",
             Group: PixaiTaggerGroup,
             OrderPriority: 8
@@ -269,7 +261,6 @@ public class PixaiTaggerExtension : Extension
         KeepUnderscoresParam = T2IParamTypes.Register<bool>(new(
             Name: "[PixAI] Keep Underscores",
             Description: "Preserves underscores in tag names (e.g. school_uniform) instead of converting them to spaces.",
-            Type: typeof(bool),
             Default: "false",
             Group: PixaiTaggerGroup,
             OrderPriority: 9
@@ -278,7 +269,6 @@ public class PixaiTaggerExtension : Extension
         FilterTagsParam = T2IParamTypes.Register<string>(new(
             Name: "[PixAI] Filter Tags",
             Description: "Comma-separated list of tags to exclude or replace. Format: 'tag_to_exclude', or 'original:replacement'. Supports wildcard patterns like 'hair*' or '*skirt'.",
-            Type: typeof(string),
             Default: "",
             Group: PixaiTaggerGroup,
             OrderPriority: 10
@@ -287,14 +277,13 @@ public class PixaiTaggerExtension : Extension
         InsertModeParam = T2IParamTypes.Register<string>(new(
             Name: "[PixAI] Insert Mode",
             Description: "How generated tags are inserted into the prompt box.",
-            Type: typeof(string),
             Default: "replace",
             GetValues: _ => ["replace///Replace prompt", "prepend///Prepend to prompt", "append///Append to prompt"],
             Group: PixaiTaggerGroup,
             OrderPriority: 11
         ));
 
-        T2IPromptHandling.RegisterPromptTag("pixaitagger", GeneratePromptTagTags);
+        T2IPromptHandling.PromptTagProcessors["pixaitagger"] = GeneratePromptTagTags;
     }
 
     public override void OnInit()
