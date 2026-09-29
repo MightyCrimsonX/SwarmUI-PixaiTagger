@@ -125,7 +125,10 @@ def to_pil_image(image_tensor):
     """Convert a ComfyUI image tensor [H, W, C] to a PIL RGB Image."""
     image_array = image_tensor.detach().cpu().numpy()
     image_array = np.clip(image_array * 255.0, 0, 255).astype(np.uint8)
-    return Image.fromarray(image_array)
+    img = Image.fromarray(image_array)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    return img
 
 
 def parse_exclusions(exclude_text):
@@ -158,6 +161,8 @@ def format_tag_items(tag_items, excluded, replace_underscore, include_confidence
 
 class PixaiTaggerGenerate:
     """ComfyUI custom node for PixAI Tagger v1.0 with GPU acceleration and clothing thresholding."""
+
+    OUTPUT_NODE = True
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -339,7 +344,7 @@ class PixaiTaggerGenerate:
             except Exception as exc:
                 print(f"[PixAITagger] Error writing output JSON to {output_path}: {exc}")
 
-        return (
+        res_tuple = (
             all_combined[0] if all_combined else "",
             all_character[0] if all_character else "",
             all_copyright[0] if all_copyright else "",
@@ -349,3 +354,15 @@ class PixaiTaggerGenerate:
             all_meta[0] if all_meta else "",
             all_rating[0] if all_rating else "",
         )
+        return {"ui": {"tags": [all_combined[0] if all_combined else ""]}, "result": res_tuple}
+
+
+NODE_CLASS_MAPPINGS = {
+    "PixaiTaggerGenerate": PixaiTaggerGenerate,
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "PixaiTaggerGenerate": "🌸 PixAI Tagger v1.0 (GPU)",
+}
+
+__all__ = ["PixaiTaggerGenerate", "NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]

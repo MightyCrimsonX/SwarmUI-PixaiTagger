@@ -411,7 +411,7 @@ public static class PixaiTaggerAPI
             }
         }
 
-        string tempOutputPath = Path.Combine(Path.GetTempPath(), $"pixaitagger_{Guid.NewGuid():N}.json");
+        string tempOutputPath = Path.Combine(Path.GetTempPath(), $"pixaitagger_{Guid.NewGuid():N}.json").Replace('\\', '/');
 
         try
         {
