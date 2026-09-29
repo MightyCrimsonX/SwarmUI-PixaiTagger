@@ -215,6 +215,9 @@ public class PixaiTaggerExtension : Extension
             Min: 0.0,
             Max: 1.0,
             Step: 0.01,
+            ViewMin: 0.0,
+            ViewMax: 1.0,
+            ViewType: ParamViewType.SLIDER,
             Toggleable: true,
             Group: PixaiTaggerGroup,
             OrderPriority: 1
@@ -227,6 +230,9 @@ public class PixaiTaggerExtension : Extension
             Min: 0.0,
             Max: 1.0,
             Step: 0.01,
+            ViewMin: 0.0,
+            ViewMax: 1.0,
+            ViewType: ParamViewType.SLIDER,
             Toggleable: true,
             Group: PixaiTaggerGroup,
             OrderPriority: 2
@@ -239,6 +245,9 @@ public class PixaiTaggerExtension : Extension
             Min: 0.0,
             Max: 1.0,
             Step: 0.01,
+            ViewMin: 0.0,
+            ViewMax: 1.0,
+            ViewType: ParamViewType.SLIDER,
             Toggleable: true,
             Group: PixaiTaggerGroup,
             OrderPriority: 3
@@ -251,6 +260,9 @@ public class PixaiTaggerExtension : Extension
             Min: 0.0,
             Max: 1.0,
             Step: 0.01,
+            ViewMin: 0.0,
+            ViewMax: 1.0,
+            ViewType: ParamViewType.SLIDER,
             Toggleable: true,
             Group: PixaiTaggerGroup,
             OrderPriority: 4
@@ -263,6 +275,9 @@ public class PixaiTaggerExtension : Extension
             Min: 0.0,
             Max: 1.0,
             Step: 0.01,
+            ViewMin: 0.0,
+            ViewMax: 1.0,
+            ViewType: ParamViewType.SLIDER,
             Toggleable: true,
             Group: PixaiTaggerGroup,
             OrderPriority: 5
