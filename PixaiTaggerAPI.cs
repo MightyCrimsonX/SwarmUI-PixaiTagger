@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using FreneticUtilities.FreneticExtensions;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
+using SwarmUI.Backends;
 using SwarmUI.Builtin_ComfyUIBackend;
 using SwarmUI.Core;
 using SwarmUI.Text2Image;
@@ -403,6 +404,66 @@ public static class PixaiTaggerAPI
             }
         }
 
+        // Check for local ComfyUI backend
+        ComfyUIAPIAbstractBackend backend = ComfyUIBackendExtension.RunningComfyBackends.FirstOrDefault(b => b is ComfyUISelfStartBackend)
+            ?? ComfyUIBackendExtension.RunningComfyBackends.FirstOrDefault();
+
+        // If no local ComfyUI backend is available, forward request to remote SwarmUI instance if connected via Swarm-to-Swarm API backend
+        if (backend is null)
+        {
+            SwarmSwarmBackend remoteBackend = Program.Backends.RunningBackendsOfType<SwarmSwarmBackend>()
+                .Where(s => s.LinkedRemoteBackendType is not null && s.LinkedRemoteBackendType.StartsWith("comfyui_")).FirstOrDefault()
+                ?? Program.Backends.RunningBackendsOfType<SwarmSwarmBackend>().FirstOrDefault(s => s.IsAControlInstance)
+                ?? Program.Backends.RunningBackendsOfType<SwarmSwarmBackend>().FirstOrDefault();
+
+            if (remoteBackend is not null)
+            {
+                Logs.Info($"[PixAITagger] No local ComfyUI backend found. Forwarding PixAI Tagger request to remote SwarmUI backend at {remoteBackend.Address}...");
+                JObject forwardReq = new()
+                {
+                    ["imageBase64"] = imageBase64,
+                    ["generalThreshold"] = generalThreshold,
+                    ["characterThreshold"] = characterThreshold,
+                    ["clothingThreshold"] = clothingThreshold,
+                    ["styleThreshold"] = styleThreshold,
+                    ["copyrightThreshold"] = copyrightThreshold,
+                    ["enableGeneral"] = enableGeneral,
+                    ["enableCharacter"] = enableCharacter,
+                    ["enableClothing"] = enableClothing,
+                    ["enableStyle"] = enableStyle,
+                    ["enableCopyright"] = enableCopyright,
+                    ["includeConfidence"] = includeConfidence,
+                    ["keepUnderscores"] = keepUnderscores,
+                    ["filterTags"] = filterTags
+                };
+
+                try
+                {
+                    using Session.GenClaim claim = session.Claim(liveGens: 1);
+                    return await remoteBackend.SendAPIJSON("PixaiTaggerGenerateTags", forwardReq);
+                }
+                catch (Exception ex)
+                {
+                    Logs.Error($"[PixAITagger] Failed to forward tagging request to remote SwarmUI ({remoteBackend.Address}): {ex.Message}");
+                    if (ex.Message.Contains("PixaiTaggerGenerateTags") || ex.Message.Contains("Unknown API call"))
+                    {
+                        return new JObject
+                        {
+                            ["success"] = false,
+                            ["error"] = $"PixAI Tagger failed: The remote SwarmUI instance at {remoteBackend.Address} does not have the SwarmUI-PixaiTagger extension installed. Please install SwarmUI-PixaiTagger on the remote machine."
+                        };
+                    }
+                    return new JObject
+                    {
+                        ["success"] = false,
+                        ["error"] = $"PixAI Tagger remote execution failed: {ex.Message}"
+                    };
+                }
+            }
+
+            throw new SwarmUserErrorException("No available ComfyUI or remote SwarmUI Backend to run this operation");
+        }
+
         string tempOutputPath = Path.Combine(Path.GetTempPath(), $"pixaitagger_{Guid.NewGuid():N}.json").Replace('\\', '/');
 
         string hfHubCache = Environment.GetEnvironmentVariable("HF_HUB_CACHE");
@@ -471,10 +532,6 @@ public static class PixaiTaggerAPI
             };
 
             Logs.Info("[PixAITagger] Sending image tagging task to ComfyUI GPU backend...");
-
-            ComfyUIAPIAbstractBackend backend = ComfyUIBackendExtension.RunningComfyBackends.FirstOrDefault(b => b is ComfyUISelfStartBackend)
-                ?? ComfyUIBackendExtension.RunningComfyBackends.FirstOrDefault()
-                ?? throw new SwarmUserErrorException("No available ComfyUI Backend to run this operation");
 
             T2IParamInput customInput = new(session);
 
