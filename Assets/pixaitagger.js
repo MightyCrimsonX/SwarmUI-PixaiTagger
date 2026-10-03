@@ -351,6 +351,25 @@ class PixaiTaggerHelper {
         }
         this.syncFromT2IParams();
         this.updateStudioUIFromState();
+        if (!this.currentImageBase64) {
+            let elem = document.getElementById('input_pixaiimage');
+            if (elem) {
+                let fileData = typeof getInputVal == 'function' ? getInputVal(elem) : null;
+                if (!fileData) {
+                    let previewImg = elem.closest('.auto-file-box')?.querySelector('.auto-input-preview img');
+                    if (previewImg && previewImg.src) {
+                        fileData = previewImg.src;
+                    }
+                }
+                if (fileData) {
+                    this.getImageBase64(fileData).then((b64) => {
+                        if (b64 && !this.currentImageBase64) {
+                            this.loadImageIntoStudio(b64, fileData);
+                        }
+                    });
+                }
+            }
+        }
         this.modalElement.classList.add('show');
     }
 
@@ -1013,9 +1032,9 @@ setTimeout(() => {
     }
 
     if (typeof promptTabComplete != 'undefined') {
-        promptTabComplete.registerPrefix('pixaitagger', 'Auto-tag the init image with PixAI Tagger v1.0 on GPU.\nUsage: <pixaitagger> or <pixaitagger:general,character,clothing>', (prefix) => {
+        promptTabComplete.registerPrefix('pixaitagger', 'Auto-tag [PixAI] Image or Init Image with PixAI Tagger v1.0 on GPU.\nUsage: <pixaitagger> or <pixaitagger:general,character,clothing>', (prefix) => {
             return [
-                '\nAdd "<pixaitagger>" anywhere in your prompt to tag the init image on GPU.',
+                '\nAdd "<pixaitagger>" anywhere in your prompt to tag [PixAI] Image (or Init Image) on GPU.',
                 '\nOptional overrides: "<pixaitagger:general_threshold,character_threshold,clothing_threshold>".',
                 '\nExample: "<pixaitagger:0.17,0.27,0.17>".'
             ];
@@ -1107,7 +1126,47 @@ function initPixaiDefaultToggles() {
 
 if (typeof postParamBuildSteps !== 'undefined') {
     postParamBuildSteps.push(initPixaiDefaultToggles);
+    postParamBuildSteps.push(initPixaiImageInput);
 }
 setTimeout(initPixaiDefaultToggles, 100);
 setTimeout(initPixaiDefaultToggles, 350);
 setTimeout(initPixaiDefaultToggles, 1000);
+setTimeout(initPixaiImageInput, 150);
+setTimeout(initPixaiImageInput, 400);
+setTimeout(initPixaiImageInput, 1000);
+
+/**
+ * Injects a 'Tag Uploaded Image' button into the [PixAI] Image parameter widget if present.
+ */
+function initPixaiImageInput() {
+    let inputElem = document.getElementById('input_pixaiimage');
+    if (!inputElem) {
+        return;
+    }
+    let parent = inputElem.closest('.auto-file-box') || (typeof findParentOfClass == 'function' ? findParentOfClass(inputElem, 'auto-file-box') : inputElem.parentElement);
+    if (!parent || parent.querySelector('.pixai-tag-image-action-btn')) {
+        return;
+    }
+    let tagBtn = document.createElement('button');
+    tagBtn.type = 'button';
+    tagBtn.className = 'basic-button pixai-tag-image-action-btn';
+    tagBtn.style.marginTop = '6px';
+    tagBtn.style.width = '100%';
+    tagBtn.innerHTML = '<span>🌸 Tag Uploaded Image</span>';
+    tagBtn.title = 'Run PixAI Tagger on this image on GPU and send tags to the prompt box';
+    tagBtn.onclick = () => {
+        let fileData = typeof getInputVal == 'function' ? getInputVal(inputElem) : null;
+        if (!fileData) {
+            let previewImg = parent.querySelector('.auto-input-preview img');
+            if (previewImg && previewImg.src) {
+                fileData = previewImg.src;
+            }
+        }
+        if (!fileData) {
+            showError('PixAI Tagger: Please upload, paste, or select an image in [PixAI] Image first.');
+            return;
+        }
+        pixaiTagger.handleViewerTag(fileData);
+    };
+    parent.appendChild(tagBtn);
+}

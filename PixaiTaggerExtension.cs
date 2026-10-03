@@ -23,6 +23,9 @@ public class PixaiTaggerExtension : Extension
     /// <summary>Parameter group for PixAI Tagger controls.</summary>
     public static T2IParamGroup PixaiTaggerGroup;
 
+    /// <summary>Input image to be tagged by PixAI Tagger.</summary>
+    public static T2IRegisteredParam<Image> InputImageParam;
+
     /// <summary>Confidence threshold for general tags.</summary>
     public static T2IRegisteredParam<double> GeneralThresholdParam;
 
@@ -53,6 +56,10 @@ public class PixaiTaggerExtension : Extension
     /// <summary>Retrieves the image to be tagged when executing a prompt tag.</summary>
     private static Image GetPromptTagImageSource(T2IParamInput input)
     {
+        if (input.TryGet(InputImageParam, out Image taggerImage) && taggerImage is not null)
+        {
+            return taggerImage;
+        }
         if (input.TryGet(T2IParamTypes.InitImage, out Image initImage) && initImage is not null)
         {
             return initImage;
@@ -138,19 +145,19 @@ public class PixaiTaggerExtension : Extension
         bool includeConf = context.Input.Get(IncludeConfidenceParam, false);
         bool keepUnder = context.Input.Get(KeepUnderscoresParam, false);
 
-        string cacheKey = $"{genThresh}:{enableGen}|{charThresh}:{enableChar}|{clothThresh}:{enableCloth}|{styleThresh}:{enableStyle}|{copyThresh}:{enableCopy}|{includeConf}|{keepUnder}|{filterTags}";
+        Image source = GetPromptTagImageSource(context.Input);
+        if (source is null)
+        {
+            context.TrackWarning("PixAI Tagger: Prompt tag '<pixaitagger>' used, but no image was provided in [PixAI] Image, Init Image, or prompt images.");
+            return "";
+        }
+
+        string imgKey = $"{source.AsBase64.Length}:{(source.AsBase64.Length > 32 ? source.AsBase64[..32] : source.AsBase64)}";
+        string cacheKey = $"{imgKey}|{genThresh}:{enableGen}|{charThresh}:{enableChar}|{clothThresh}:{enableCloth}|{styleThresh}:{enableStyle}|{copyThresh}:{enableCopy}|{includeConf}|{keepUnder}|{filterTags}";
         Dictionary<string, string> cache = context.Input.ExtraMeta.GetOrCreate(PromptTagCacheKey, () => new Dictionary<string, string>()) as Dictionary<string, string>;
         if (cache.TryGetValue(cacheKey, out string cached))
         {
             return cached;
-        }
-
-        Image source = GetPromptTagImageSource(context.Input);
-        if (source is null)
-        {
-            context.TrackWarning("PixAI Tagger: Prompt tag '<pixaitagger>' used, but no init image or prompt image was provided.");
-            cache[cacheKey] = "";
-            return "";
         }
 
         try
@@ -207,6 +214,15 @@ public class PixaiTaggerExtension : Extension
             OrderPriority: 95,
             Description: "Settings for PixAI Tagger v1.0 (Generate Tags button, interactive studio tool, and <pixaitagger> prompt tag).\nOperates on GPU via ComfyUI backend with dedicated clothing thresholding."
         );
+
+        InputImageParam = T2IParamTypes.Register<Image>(new(
+            Name: "[PixAI] Image",
+            Description: "Image to tag with PixAI Tagger when using the '<pixaitagger>' prompt tag or interactive tagging.",
+            Default: null,
+            ImageShouldResize: false,
+            Group: PixaiTaggerGroup,
+            OrderPriority: 0
+        ));
 
         GeneralThresholdParam = T2IParamTypes.Register<double>(new(
             Name: "[PixAI] General Threshold",

@@ -27,10 +27,12 @@ Built with direct **GPU acceleration** via the SwarmUI ComfyUI backend and inclu
 - **👁️ Image Viewer Integration**:
   - `🌸 PixAI Tag` button in the SwarmUI image viewer media button bar.
   - `⚙️ PixAI Studio` button to open the full interactive studio with the viewed image.
-- **⚡ Prompt Tag `<pixaitagger>`**:
-  - Add `<pixaitagger>` anywhere in your prompt to automatically tag the init image during generation.
+- **⚡ Prompt Tag `<pixaitagger>` & Uploaded Image**:
+  - Upload or paste an image directly into the **[PixAI] Image** field in the sidebar or use an **Init Image**.
+  - Click **🌸 Tag Uploaded Image** to instantly send tags to the prompt box, or add `<pixaitagger>` anywhere in your prompt to tag automatically during generation.
   - Optional positional overrides: `<pixaitagger:general_threshold,character_threshold,clothing_threshold>`.
 - **⚙️ T2I Parameter Group**:
+  - Dedicated **[PixAI] Image** input parameter with paste, upload, and browser select support.
   - Settings are registered under the **PixAI Tagger** group in SwarmUI's sidebar, fully savable with user presets.
   - Filter tags with wildcard rules (e.g. `tag_to_exclude`, `source:target`, `*hair`, `*dress`).
 
