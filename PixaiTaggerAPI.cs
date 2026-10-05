@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -59,6 +61,7 @@ public static class PixaiTaggerAPI
     {
         API.RegisterAPICall(PixaiTaggerGenerateTags, true, PixaiTaggerPermissions.PermGenerateTags);
         API.RegisterAPICall(PixaiTaggerApplyFilters, true, PixaiTaggerPermissions.PermGenerateTags);
+        API.RegisterAPICall(PixaiTaggerClearCache, true, PixaiTaggerPermissions.PermGenerateTags);
     }
 
     /// <summary>Supported matching styles for filter rule source tags.</summary>
@@ -371,7 +374,72 @@ public static class PixaiTaggerAPI
         return string.Join(", ", updatedTags);
     }
 
-    /// <summary>Generates PixAI tags for the provided image using GPU acceleration.</summary>
+    /// <summary>Cached raw tagging outputs from ComfyUI GPU executions, keyed by image hash and threshold parameters.</summary>
+    public static readonly ConcurrentDictionary<string, JObject> RawGpuTagCache = new();
+
+    /// <summary>Active in-flight GPU tag generation tasks to prevent duplicate concurrent ComfyUI submissions.</summary>
+    private static readonly ConcurrentDictionary<string, Task<JObject>> InFlightGpuTasks = new();
+
+    /// <summary>Builds a deterministic, invariant cache key for GPU tagging parameters.</summary>
+    public static string BuildGpuCacheKey(
+        string imgHash,
+        float generalThreshold,
+        bool enableGeneral,
+        float characterThreshold,
+        bool enableCharacter,
+        float clothingThreshold,
+        bool enableClothing,
+        float styleThreshold,
+        bool enableStyle,
+        float copyrightThreshold,
+        bool enableCopyright,
+        bool includeConfidence,
+        bool keepUnderscores)
+    {
+        FormattableString fs = $"{imgHash}|gen:{generalThreshold:0.000}:{enableGeneral}|char:{characterThreshold:0.000}:{enableCharacter}|cloth:{clothingThreshold:0.000}:{enableClothing}|style:{styleThreshold:0.000}:{enableStyle}|copy:{copyrightThreshold:0.000}:{enableCopyright}|conf:{includeConfidence}|under:{keepUnderscores}";
+        return FormattableString.Invariant(fs);
+    }
+
+    /// <summary>Formats the final API response from cached or fresh raw GPU results by applying filter rules.</summary>
+    private static JObject FormatTagResponse(JObject rawResult, string filterTags)
+    {
+        if (rawResult is null || rawResult["success"]?.Value<bool>() != true)
+        {
+            return rawResult;
+        }
+
+        string combined = rawResult["combined_tags"]?.ToString() ?? rawResult["tags"]?.ToString() ?? "";
+        string character = rawResult["character"]?.ToString() ?? "";
+        string copyright = rawResult["copyright"]?.ToString() ?? "";
+        string style = rawResult["style"]?.ToString() ?? "";
+        string clothing = rawResult["clothing"]?.ToString() ?? "";
+        string general = rawResult["general"]?.ToString() ?? "";
+
+        if (!string.IsNullOrWhiteSpace(filterTags))
+        {
+            FilterTagRules filterRules = ParseFilterTagRules(filterTags);
+            combined = ApplyFilterTagRules(combined, filterRules);
+            character = ApplyFilterTagRules(character, filterRules);
+            copyright = ApplyFilterTagRules(copyright, filterRules);
+            style = ApplyFilterTagRules(style, filterRules);
+            clothing = ApplyFilterTagRules(clothing, filterRules);
+            general = ApplyFilterTagRules(general, filterRules);
+        }
+
+        return new JObject
+        {
+            ["success"] = true,
+            ["tags"] = combined,
+            ["character"] = character,
+            ["copyright"] = copyright,
+            ["style"] = style,
+            ["clothing"] = clothing,
+            ["general"] = general,
+            ["details"] = rawResult["details"]?.DeepClone()
+        };
+    }
+
+    /// <summary>Generates PixAI tags for the provided image using GPU acceleration, with cross-generation caching and batch deduplication.</summary>
     public static async Task<JObject> PixaiTaggerGenerateTags(
         Session session,
         string imageBase64,
@@ -404,6 +472,98 @@ public static class PixaiTaggerAPI
             }
         }
 
+        string imgHash;
+        try
+        {
+            byte[] imageBytes = Convert.FromBase64String(imageBase64);
+            imgHash = Utilities.HashSHA256(imageBytes);
+        }
+        catch
+        {
+            imgHash = $"{imageBase64.Length}:{(imageBase64.Length > 32 ? imageBase64[..32] : imageBase64)}";
+        }
+
+        string gpuKey = BuildGpuCacheKey(
+            imgHash,
+            generalThreshold, enableGeneral,
+            characterThreshold, enableCharacter,
+            clothingThreshold, enableClothing,
+            styleThreshold, enableStyle,
+            copyrightThreshold, enableCopyright,
+            includeConfidence, keepUnderscores);
+
+        // Check cache first: if image was already tagged with these thresholds, reuse immediately without touching GPU
+        if (RawGpuTagCache.TryGetValue(gpuKey, out JObject cachedRaw))
+        {
+            string shortHash = imgHash.Length > 12 ? imgHash[..12] : imgHash;
+            Logs.Info($"[PixAITagger] Reusing cached tags for image (SHA256: {shortHash}...). Skipping GPU generation.");
+            return FormatTagResponse(cachedRaw, filterTags);
+        }
+
+        // Deduplicate concurrent in-flight requests (e.g., during batch generation) so GPU runs only once
+        Task<JObject> taggingTask;
+        lock (InFlightGpuTasks)
+        {
+            if (!InFlightGpuTasks.TryGetValue(gpuKey, out taggingTask))
+            {
+                taggingTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        return await ExecuteGpuTaggingRawAsync(
+                            session,
+                            imageBase64,
+                            imgHash,
+                            generalThreshold, characterThreshold, clothingThreshold, styleThreshold, copyrightThreshold,
+                            enableGeneral, enableCharacter, enableClothing, enableStyle, enableCopyright,
+                            includeConfidence, keepUnderscores);
+                    }
+                    finally
+                    {
+                        lock (InFlightGpuTasks)
+                        {
+                            InFlightGpuTasks.TryRemove(gpuKey, out _);
+                        }
+                    }
+                });
+                InFlightGpuTasks[gpuKey] = taggingTask;
+            }
+        }
+
+        JObject rawResult = await taggingTask;
+        if (rawResult?["success"]?.Value<bool>() == true)
+        {
+            if (RawGpuTagCache.Count > 500)
+            {
+                foreach (string oldKey in RawGpuTagCache.Keys.Take(250))
+                {
+                    RawGpuTagCache.TryRemove(oldKey, out _);
+                }
+            }
+            RawGpuTagCache[gpuKey] = rawResult;
+        }
+
+        return FormatTagResponse(rawResult, filterTags);
+    }
+
+    /// <summary>Executes the raw ComfyUI GPU tagging workflow or remote backend forwarding without applying string filters.</summary>
+    private static async Task<JObject> ExecuteGpuTaggingRawAsync(
+        Session session,
+        string imageBase64,
+        string imgHash,
+        float generalThreshold,
+        float characterThreshold,
+        float clothingThreshold,
+        float styleThreshold,
+        float copyrightThreshold,
+        bool enableGeneral,
+        bool enableCharacter,
+        bool enableClothing,
+        bool enableStyle,
+        bool enableCopyright,
+        bool includeConfidence,
+        bool keepUnderscores)
+    {
         // Check for local ComfyUI backend
         ComfyUIAPIAbstractBackend backend = ComfyUIBackendExtension.RunningComfyBackends.FirstOrDefault(b => b is ComfyUISelfStartBackend)
             ?? ComfyUIBackendExtension.RunningComfyBackends.FirstOrDefault();
@@ -434,12 +594,12 @@ public static class PixaiTaggerAPI
                     ["enableCopyright"] = enableCopyright,
                     ["includeConfidence"] = includeConfidence,
                     ["keepUnderscores"] = keepUnderscores,
-                    ["filterTags"] = filterTags
+                    ["filterTags"] = ""
                 };
 
                 try
                 {
-                    using Session.GenClaim claim = session.Claim(liveGens: 1);
+                    using Session.GenClaim claim = session?.Claim(liveGens: 1);
                     return await remoteBackend.SendAPIJSON("PixaiTaggerGenerateTags", forwardReq);
                 }
                 catch (Exception ex)
@@ -531,11 +691,12 @@ public static class PixaiTaggerAPI
                 }
             };
 
-            Logs.Info("[PixAITagger] Sending image tagging task to ComfyUI GPU backend...");
+            string shortHash = imgHash.Length > 12 ? imgHash[..12] : imgHash;
+            Logs.Info($"[PixAITagger] Sending image tagging task to ComfyUI GPU backend (image SHA256: {shortHash}...)...");
 
             T2IParamInput customInput = new(session);
 
-            using Session.GenClaim claim = session.Claim(liveGens: 1);
+            using Session.GenClaim claim = session?.Claim(liveGens: 1);
             await backend.AwaitJobLive(workflow.ToString(), "0", _ => { }, customInput, Program.GlobalProgramCancel);
 
             if (!File.Exists(tempOutputPath))
@@ -550,25 +711,6 @@ public static class PixaiTaggerAPI
             string jsonContent = await File.ReadAllTextAsync(tempOutputPath);
             JObject parsedResult = JObject.Parse(jsonContent);
 
-            FilterTagRules filterRules = ParseFilterTagRules(filterTags);
-
-            string combined = parsedResult["combined_tags"]?.ToString() ?? "";
-            string character = parsedResult["character"]?.ToString() ?? "";
-            string copyright = parsedResult["copyright"]?.ToString() ?? "";
-            string style = parsedResult["style"]?.ToString() ?? "";
-            string clothing = parsedResult["clothing"]?.ToString() ?? "";
-            string general = parsedResult["general"]?.ToString() ?? "";
-
-            if (!string.IsNullOrWhiteSpace(filterTags))
-            {
-                combined = ApplyFilterTagRules(combined, filterRules);
-                character = ApplyFilterTagRules(character, filterRules);
-                copyright = ApplyFilterTagRules(copyright, filterRules);
-                style = ApplyFilterTagRules(style, filterRules);
-                clothing = ApplyFilterTagRules(clothing, filterRules);
-                general = ApplyFilterTagRules(general, filterRules);
-            }
-
             long elapsedMs = Environment.TickCount64 - startTime;
             double elapsedSec = elapsedMs / 1000.0;
 
@@ -577,18 +719,19 @@ public static class PixaiTaggerAPI
                 Logs.Init($"[PixAITagger] Model 'pixai-labs/pixai-tagger-v1.0' downloaded and cached successfully to: {modelCacheDir}");
             }
 
+            string combined = parsedResult["combined_tags"]?.ToString() ?? "";
             int tagCount = combined.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
-            Logs.Info($"[PixAITagger] Tag generation completed in {elapsedSec:0.00}s. Extracted {tagCount} tags.");
+            Logs.Info($"[PixAITagger] GPU tag generation completed in {elapsedSec:0.00}s. Extracted {tagCount} tags.");
 
             return new JObject
             {
                 ["success"] = true,
-                ["tags"] = combined,
-                ["character"] = character,
-                ["copyright"] = copyright,
-                ["style"] = style,
-                ["clothing"] = clothing,
-                ["general"] = general,
+                ["combined_tags"] = combined,
+                ["character"] = parsedResult["character"]?.ToString() ?? "",
+                ["copyright"] = parsedResult["copyright"]?.ToString() ?? "",
+                ["style"] = parsedResult["style"]?.ToString() ?? "",
+                ["clothing"] = parsedResult["clothing"]?.ToString() ?? "",
+                ["general"] = parsedResult["general"]?.ToString() ?? "",
                 ["details"] = parsedResult["details"]
             };
         }
@@ -614,6 +757,17 @@ public static class PixaiTaggerAPI
                 }
             }
         }
+    }
+
+    /// <summary>Clears all cached tag results from memory.</summary>
+    public static async Task<JObject> PixaiTaggerClearCache(Session session)
+    {
+        await Task.CompletedTask;
+        int count = RawGpuTagCache.Count + PixaiTaggerExtension.GlobalTagCache.Count;
+        RawGpuTagCache.Clear();
+        PixaiTaggerExtension.GlobalTagCache.Clear();
+        Logs.Info($"[PixAITagger] Cleared {count} cached image tag entries.");
+        return new JObject { ["success"] = true, ["clearedCount"] = count };
     }
 
     /// <summary>Applies tag filter replacement and exclusion rules to an existing tag string.</summary>

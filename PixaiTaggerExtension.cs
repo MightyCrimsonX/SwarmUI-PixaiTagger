@@ -1,5 +1,7 @@
 using System.IO;
 using System.Globalization;
+using System.Collections.Concurrent;
+using System.Linq;
 using FreneticUtilities.FreneticExtensions;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
@@ -19,6 +21,12 @@ public class PixaiTaggerExtension : Extension
 
     /// <summary>ExtraMeta cache key for prompt-tag generated PixAI tags.</summary>
     public const string PromptTagCacheKey = "pixaitagger_prompt_tags";
+
+    /// <summary>Global cache for generated prompt tags across batches and generations, keyed by image hash and tag parameters.</summary>
+    public static readonly ConcurrentDictionary<string, string> GlobalTagCache = new();
+
+    /// <summary>Active in-flight prompt tag generation tasks to prevent duplicate concurrent tag executions in batch generations.</summary>
+    private static readonly ConcurrentDictionary<string, Task<string>> InFlightPromptTagTasks = new();
 
     /// <summary>Parameter group for PixAI Tagger controls.</summary>
     public static T2IParamGroup PixaiTaggerGroup;
@@ -127,7 +135,7 @@ public class PixaiTaggerExtension : Extension
         }
     }
 
-    /// <summary>Expands the &lt;pixaitagger&gt; prompt tag into tags from the init image.</summary>
+    /// <summary>Expands the &lt;pixaitagger&gt; prompt tag into tags from the init image, with cross-generation caching and batch deduplication.</summary>
     private static string GeneratePromptTagTags(string data, T2IPromptHandling.PromptTagContext context)
     {
         if (context?.Input is null)
@@ -152,52 +160,99 @@ public class PixaiTaggerExtension : Extension
             return "";
         }
 
-        string imgKey = $"{source.AsBase64.Length}:{(source.AsBase64.Length > 32 ? source.AsBase64[..32] : source.AsBase64)}";
-        string cacheKey = $"{imgKey}|{genThresh}:{enableGen}|{charThresh}:{enableChar}|{clothThresh}:{enableCloth}|{styleThresh}:{enableStyle}|{copyThresh}:{enableCopy}|{includeConf}|{keepUnder}|{filterTags}";
-        Dictionary<string, string> cache = context.Input.ExtraMeta.GetOrCreate(PromptTagCacheKey, () => new Dictionary<string, string>()) as Dictionary<string, string>;
-        if (cache.TryGetValue(cacheKey, out string cached))
-        {
-            return cached;
-        }
-
+        string imgHash;
         try
         {
-            JObject result = PixaiTaggerAPI.PixaiTaggerGenerateTags(
-                context.Input.SourceSession,
-                source.AsBase64,
-                generalThreshold: genThresh,
-                characterThreshold: charThresh,
-                clothingThreshold: clothThresh,
-                styleThreshold: styleThresh,
-                copyrightThreshold: copyThresh,
-                enableGeneral: enableGen,
-                enableCharacter: enableChar,
-                enableClothing: enableCloth,
-                enableStyle: enableStyle,
-                enableCopyright: enableCopy,
-                includeConfidence: includeConf,
-                keepUnderscores: keepUnder,
-                filterTags: filterTags
-            ).GetAwaiter().GetResult();
-
-            if (result?["success"]?.Value<bool>() != true)
-            {
-                string err = result?["error"]?.Value<string>() ?? "Unknown PixAI error.";
-                context.TrackWarning($"PixAI Tagger prompt tag failed: {err}");
-                cache[cacheKey] = "";
-                return "";
-            }
-
-            string tags = result?["tags"]?.Value<string>() ?? "";
-            cache[cacheKey] = tags;
-            return tags;
+            byte[] imageBytes = source.RawData ?? (string.IsNullOrEmpty(source.AsBase64) ? null : Convert.FromBase64String(source.AsBase64));
+            imgHash = imageBytes is not null ? Utilities.HashSHA256(imageBytes) : $"{source.AsBase64.Length}:{(source.AsBase64.Length > 32 ? source.AsBase64[..32] : source.AsBase64)}";
         }
-        catch (Exception ex)
+        catch
         {
-            context.TrackWarning($"PixAI Tagger prompt tag exception: {ex.Message}");
-            cache[cacheKey] = "";
-            return "";
+            imgHash = $"{source.AsBase64.Length}:{(source.AsBase64.Length > 32 ? source.AsBase64[..32] : source.AsBase64)}";
         }
+
+        string cacheKey = PixaiTaggerAPI.BuildGpuCacheKey(
+            imgHash,
+            genThresh, enableGen,
+            charThresh, enableChar,
+            clothThresh, enableCloth,
+            styleThresh, enableStyle,
+            copyThresh, enableCopy,
+            includeConf, keepUnder) + $"|filter:{filterTags}";
+
+        // Check if already tagged previously across generations
+        if (GlobalTagCache.TryGetValue(cacheKey, out string cachedTags))
+        {
+            string shortHash = imgHash.Length > 12 ? imgHash[..12] : imgHash;
+            Logs.Verbose($"[PixAITagger] Reusing cached tags for <pixaitagger> (SHA256: {shortHash}...). Skipping tag generation.");
+            return cachedTags;
+        }
+
+        // Deduplicate concurrent batch generation items so GPU execution only runs once
+        Task<string> tagTask;
+        lock (InFlightPromptTagTasks)
+        {
+            if (!InFlightPromptTagTasks.TryGetValue(cacheKey, out tagTask))
+            {
+                tagTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        JObject result = await PixaiTaggerAPI.PixaiTaggerGenerateTags(
+                            context.Input.SourceSession,
+                            source.AsBase64,
+                            generalThreshold: genThresh,
+                            characterThreshold: charThresh,
+                            clothingThreshold: clothThresh,
+                            styleThreshold: styleThresh,
+                            copyrightThreshold: copyThresh,
+                            enableGeneral: enableGen,
+                            enableCharacter: enableChar,
+                            enableClothing: enableCloth,
+                            enableStyle: enableStyle,
+                            enableCopyright: enableCopy,
+                            includeConfidence: includeConf,
+                            keepUnderscores: keepUnder,
+                            filterTags: filterTags
+                        );
+
+                        if (result?["success"]?.Value<bool>() != true)
+                        {
+                            string err = result?["error"]?.Value<string>() ?? "Unknown PixAI error.";
+                            context.TrackWarning($"PixAI Tagger prompt tag failed: {err}");
+                            return "";
+                        }
+
+                        string tags = result?["tags"]?.Value<string>() ?? "";
+                        if (GlobalTagCache.Count > 500)
+                        {
+                            foreach (string oldKey in GlobalTagCache.Keys.Take(250))
+                            {
+                                GlobalTagCache.TryRemove(oldKey, out _);
+                            }
+                        }
+                        GlobalTagCache[cacheKey] = tags;
+                        return tags;
+                    }
+                    catch (Exception ex)
+                    {
+                        context.TrackWarning($"PixAI Tagger prompt tag exception: {ex.Message}");
+                        return "";
+                    }
+                    finally
+                    {
+                        lock (InFlightPromptTagTasks)
+                        {
+                            InFlightPromptTagTasks.TryRemove(cacheKey, out _);
+                        }
+                    }
+                });
+                InFlightPromptTagTasks[cacheKey] = tagTask;
+            }
+        }
+
+        string generatedTags = tagTask.GetAwaiter().GetResult();
+        return generatedTags ?? "";
     }
 
     public override void OnPreInit()
