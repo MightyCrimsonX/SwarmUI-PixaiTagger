@@ -30,6 +30,14 @@ CLOTHING_SUFFIXES = (
     "_headwear", "_garter", "_heels", "_pumps", "_loafers", "_headdress"
 )
 
+DEFAULT_EXCLUDE_TAGS = (
+    "signature, watermark, artist name, character name, dated, "
+    "patreon username, twitter username, pixiv username, pixiv id, "
+    "fanbox username, deviantart username, weibo username, username, "
+    "copyright name, web address, url, website, patreon logo, twitter logo, "
+    "logo, sample watermark, sample, qr code, barcode"
+)
+
 
 def ensure_dependencies():
     """Ensure required packages are available in the current Python environment."""
@@ -182,7 +190,7 @@ class PixaiTaggerGenerate:
                 "enable_copyright": ("BOOLEAN", {"default": False}),
                 "include_confidence": ("BOOLEAN", {"default": False}),
                 "keep_underscores": ("BOOLEAN", {"default": False}),
-                "exclude_tags": ("STRING", {"multiline": True, "default": ""}),
+                "exclude_tags": ("STRING", {"multiline": True, "default": DEFAULT_EXCLUDE_TAGS}),
             },
             "optional": {
                 "output_path": ("STRING", {"default": ""}),
@@ -209,7 +217,7 @@ class PixaiTaggerGenerate:
         enable_copyright,
         include_confidence,
         keep_underscores,
-        exclude_tags="",
+        exclude_tags=DEFAULT_EXCLUDE_TAGS,
         output_path="",
     ):
         t0 = time.time()

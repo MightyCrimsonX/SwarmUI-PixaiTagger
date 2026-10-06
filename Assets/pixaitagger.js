@@ -31,6 +31,7 @@ class PixaiTaggerHelper {
         this.modalElement = null;
         this.isProcessing = false;
         this.lastResult = null;
+        this.defaultFilterTags = 'signature, watermark, artist name, character name, dated, patreon username, twitter username, pixiv username, pixiv id, fanbox username, deviantart username, weibo username, username, copyright name, web address, url, website, patreon logo, twitter logo, logo, sample watermark, sample, qr code, barcode';
     }
 
     /**
@@ -80,7 +81,7 @@ class PixaiTaggerHelper {
             enableCopyright: this.categories.copyright,
             includeConfidence: this.includeConfidence,
             keepUnderscores: this.keepUnderscores,
-            filterTags: this.getParamValue('pixaifiltertags', '')
+            filterTags: this.getParamValue('pixaifiltertags', this.defaultFilterTags)
         };
 
         return new Promise((resolve, reject) => {
@@ -102,7 +103,7 @@ class PixaiTaggerHelper {
      */
     getParamValue(paramId, fallback) {
         let elem = document.getElementById('input_' + paramId);
-        if (elem) {
+        if (elem && elem.value != undefined && elem.value != null) {
             return elem.value;
         }
         return fallback;

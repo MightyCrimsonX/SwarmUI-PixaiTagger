@@ -50,6 +50,9 @@ public static class PixaiTaggerAPI
     /// <summary>Default confidence threshold for clothing tags.</summary>
     public const float DefaultClothingThreshold = 0.17f;
 
+    /// <summary>Default comma-separated list of banned metadata, watermark, and signature tags.</summary>
+    public const string DefaultBannedFilterTags = "signature, watermark, artist name, character name, dated, patreon username, twitter username, pixiv username, pixiv id, fanbox username, deviantart username, weibo username, username, copyright name, web address, url, website, patreon logo, twitter logo, logo, sample watermark, sample, qr code, barcode";
+
     /// <summary>Matches a trailing prompt-weight suffix like ":1.3" on a tag's core text.</summary>
     private static readonly Regex TrailingWeightPattern = new(@":\s*\d+(?:\.\d+)?\s*$", RegexOptions.Compiled);
 
@@ -83,14 +86,14 @@ public static class PixaiTaggerAPI
         List<FilterTagRule> WildcardExclusionRules,
         List<FilterTagRule> WildcardReplacementRules);
 
-    /// <summary>Normalizes whitespace so matching treats repeated spaces consistently.</summary>
+    /// <summary>Normalizes whitespace and converts underscores to spaces so matching is uniform.</summary>
     private static string NormalizeTagText(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
             return "";
         }
-        return string.Join(' ', text.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        return string.Join(' ', text.Replace('_', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
     /// <summary>Returns whether the character should count as part of a word for boundary checks.</summary>
@@ -414,6 +417,7 @@ public static class PixaiTaggerAPI
         string style = rawResult["style"]?.ToString() ?? "";
         string clothing = rawResult["clothing"]?.ToString() ?? "";
         string general = rawResult["general"]?.ToString() ?? "";
+        JObject details = rawResult["details"]?.DeepClone() as JObject;
 
         if (!string.IsNullOrWhiteSpace(filterTags))
         {
@@ -424,6 +428,41 @@ public static class PixaiTaggerAPI
             style = ApplyFilterTagRules(style, filterRules);
             clothing = ApplyFilterTagRules(clothing, filterRules);
             general = ApplyFilterTagRules(general, filterRules);
+
+            if (details is not null)
+            {
+                string[] categories = ["character", "copyright", "style", "clothing", "general"];
+                foreach (string cat in categories)
+                {
+                    if (details[cat] is JArray arr)
+                    {
+                        JArray newArr = [];
+                        foreach (JToken item in arr)
+                        {
+                            string tagText = item["tag"]?.ToString() ?? "";
+                            string norm = NormalizeTagText(tagText);
+                            if (filterRules.ExactExcludedTags.Contains(norm))
+                            {
+                                continue;
+                            }
+                            bool excluded = false;
+                            foreach (FilterTagRule rule in filterRules.WildcardExclusionRules)
+                            {
+                                if (MatchesFilterRule(norm, rule.SourceTag, rule.MatchMode))
+                                {
+                                    excluded = true;
+                                    break;
+                                }
+                            }
+                            if (!excluded)
+                            {
+                                newArr.Add(item);
+                            }
+                        }
+                        details[cat] = newArr;
+                    }
+                }
+            }
         }
 
         return new JObject
@@ -435,7 +474,7 @@ public static class PixaiTaggerAPI
             ["style"] = style,
             ["clothing"] = clothing,
             ["general"] = general,
-            ["details"] = rawResult["details"]?.DeepClone()
+            ["details"] = details
         };
     }
 
@@ -455,8 +494,13 @@ public static class PixaiTaggerAPI
         bool enableCopyright = false,
         bool includeConfidence = false,
         bool keepUnderscores = false,
-        string filterTags = "")
+        string filterTags = DefaultBannedFilterTags)
     {
+        if (filterTags is null)
+        {
+            filterTags = DefaultBannedFilterTags;
+        }
+
         if (string.IsNullOrWhiteSpace(imageBase64))
         {
             return new JObject { ["success"] = false, ["error"] = "No image data provided." };

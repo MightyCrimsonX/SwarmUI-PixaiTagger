@@ -149,7 +149,7 @@ public class PixaiTaggerExtension : Extension
             out float clothThresh, out bool enableCloth,
             out float styleThresh, out bool enableStyle,
             out float copyThresh, out bool enableCopy);
-        string filterTags = context.Input.Get(FilterTagsParam, "");
+        string filterTags = context.Input.Get(FilterTagsParam, PixaiTaggerAPI.DefaultBannedFilterTags);
         bool includeConf = context.Input.Get(IncludeConfidenceParam, false);
         bool keepUnder = context.Input.Get(KeepUnderscoresParam, false);
 
@@ -372,8 +372,8 @@ public class PixaiTaggerExtension : Extension
 
         FilterTagsParam = T2IParamTypes.Register<string>(new(
             Name: "[PixAI] Filter Tags",
-            Description: "Comma-separated list of tags to exclude or replace. Format: 'tag_to_exclude', or 'original:replacement'. Supports wildcard patterns like 'hair*' or '*skirt'.",
-            Default: "",
+            Description: "Comma-separated list of tags to exclude or replace. Format: 'tag_to_exclude', or 'original:replacement'. Supports wildcard patterns like 'hair*' or '*skirt'. Defaults to common watermark, signature, and metadata blacklist.",
+            Default: PixaiTaggerAPI.DefaultBannedFilterTags,
             Group: PixaiTaggerGroup,
             OrderPriority: 8
         ));

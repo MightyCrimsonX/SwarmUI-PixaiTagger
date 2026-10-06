@@ -34,7 +34,7 @@ Built with direct **GPU acceleration** via the SwarmUI ComfyUI backend and inclu
 - **⚙️ T2I Parameter Group**:
   - Dedicated **[PixAI] Image** input parameter with paste, upload, and browser select support.
   - Settings are registered under the **PixAI Tagger** group in SwarmUI's sidebar, fully savable with user presets.
-  - Filter tags with wildcard rules (e.g. `tag_to_exclude`, `source:target`, `*hair`, `*dress`).
+  - Filter tags with wildcard rules (e.g. `tag_to_exclude`, `source:target`, `*hair`, `*dress`). Pre-configured with a default blacklist excluding watermarks, signatures, artist/character names, usernames, and logos.
 
 ---
 
