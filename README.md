@@ -1,14 +1,12 @@
-# SwarmUI PixAI Tagger v1.0 Extension (GPU)
-
+# SwarmUI PixAI Tagger v1.0 Extension
 An advanced image tagging extension for [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) powered by the official [PixAI Tagger v1.0](https://huggingface.co/pixai-labs/pixai-tagger-v1.0) model.
 
-Built with direct **GPU acceleration** via the SwarmUI ComfyUI backend and includes a dedicated **Clothing Threshold** controller to independently tune outfit and attire tag sensitivity.
-
+Built with direct **GPU acceleration** via the SwarmUI ComfyUI backend.
 ---
 
 ## ✨ Features
 
-- **🚀 100% GPU Accelerated**: Executes directly in the ComfyUI PyTorch CUDA runtime (float16) on your graphics card for blazing fast tagging (~50ms) without CPU bottlenecks.
+- **🚀 100% GPU Accelerated**: Executes directly in the ComfyUI PyTorch CUDA runtime (float16)
 - **👗 Dedicated Clothing Threshold**: Segregates attire, garments, and accessories from general tags, allowing you to set a custom sensitivity specifically for clothing items.
 - **🎛️ Toggleable Per-Category Threshold Sliders**:
   - **General threshold** (default: `0.17`, toggled **ON**)
