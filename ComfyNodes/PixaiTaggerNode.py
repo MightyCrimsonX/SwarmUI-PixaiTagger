@@ -277,6 +277,11 @@ class PixaiTaggerGenerate:
                 (tag, score) for tag, score in cats.get("style", {}).items()
                 if score >= style_threshold and enable_style
             ]
+            copyright_items = [
+                (tag, score) for tag, score in cats.get("copyright", {}).items()
+                if score >= copyright_threshold and enable_copyright
+            ]
+
             # Filter items against exclusions
             def is_allowed(item_tuple):
                 t_name = item_tuple[0].strip().lower()
