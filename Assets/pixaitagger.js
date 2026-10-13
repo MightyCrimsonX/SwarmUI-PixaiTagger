@@ -81,7 +81,7 @@ class PixaiTaggerHelper {
             enableCopyright: this.categories.copyright,
             includeConfidence: this.includeConfidence,
             keepUnderscores: this.keepUnderscores,
-            filterTags: this.getParamValue('pixaifiltertags', this.defaultFilterTags)
+            filterTags: (this.getParamValue('pixaifiltertags', this.defaultFilterTags) || '').trim() || this.defaultFilterTags
         };
 
         return new Promise((resolve, reject) => {

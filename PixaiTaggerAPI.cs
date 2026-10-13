@@ -245,6 +245,22 @@ public static class PixaiTaggerAPI
         List<FilterTagRule> wildcardExclusionRules = [];
         List<FilterTagRule> wildcardReplacementRules = [];
 
+        void AddExclusion(string tagText)
+        {
+            string norm = NormalizeTagText(tagText);
+            if (!string.IsNullOrWhiteSpace(norm))
+            {
+                exactExcludedTags.Add(norm);
+                exactExcludedTags.Add(norm.Replace(' ', '_'));
+            }
+        }
+
+        // Always seed exactExcludedTags with default banned metadata and watermark tags
+        foreach (string defaultTag in DefaultBannedFilterTags.Split([',', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            AddExclusion(defaultTag);
+        }
+
         if (string.IsNullOrWhiteSpace(filterTags))
         {
             return new FilterTagRules(exactExcludedTags, exactReplacementTags, wildcardExclusionRules, wildcardReplacementRules);
@@ -258,6 +274,19 @@ public static class PixaiTaggerAPI
             {
                 continue;
             }
+
+            // Allow user to unban a default tag using +tag or !tag (e.g. "+character name" or "!character name")
+            if (entry.StartsWith('+') || entry.StartsWith('!'))
+            {
+                string unbanTag = NormalizeTagText(entry[1..].Trim().Trim('"'));
+                if (!string.IsNullOrWhiteSpace(unbanTag))
+                {
+                    exactExcludedTags.Remove(unbanTag);
+                    exactExcludedTags.Remove(unbanTag.Replace(' ', '_'));
+                }
+                continue;
+            }
+
             int separatorIndex = entry.IndexOf(':');
             if (separatorIndex > 0 && separatorIndex < entry.Length - 1)
             {
@@ -269,6 +298,7 @@ public static class PixaiTaggerAPI
                     if (matchMode == FilterTagMatchMode.Exact)
                     {
                         exactReplacementTags[normalizedSourceTag] = targetTag;
+                        exactReplacementTags[normalizedSourceTag.Replace(' ', '_')] = targetTag;
                     }
                     else
                     {
@@ -280,7 +310,7 @@ public static class PixaiTaggerAPI
             FilterTagMatchMode exMatchMode = ParseFilterTagMatchMode(entry.Trim('"'), out string normExTag);
             if (exMatchMode == FilterTagMatchMode.Exact)
             {
-                exactExcludedTags.Add(normExTag);
+                AddExclusion(normExTag);
             }
             else
             {
@@ -329,7 +359,7 @@ public static class PixaiTaggerAPI
     }
 
     /// <summary>Applies exact replacements, exact exclusions, wildcard replacements, and wildcard exclusions.</summary>
-    private static string ApplyFilterTagRules(string rawTags, FilterTagRules rules)
+    private static string ApplyFilterTagRules(string rawTags, FilterTagRules rules, bool keepUnderscores = false)
     {
         if (string.IsNullOrWhiteSpace(rawTags))
         {
@@ -348,7 +378,12 @@ public static class PixaiTaggerAPI
             {
                 tag = exactReplacement;
             }
-            if (rules.ExactExcludedTags.Contains(tag))
+            else if (rules.ExactReplacementTags.TryGetValue(tag.Replace(' ', '_'), out string exactRepUnderscore))
+            {
+                tag = exactRepUnderscore;
+            }
+
+            if (rules.ExactExcludedTags.Contains(tag) || rules.ExactExcludedTags.Contains(tag.Replace(' ', '_')))
             {
                 continue;
             }
@@ -363,7 +398,8 @@ public static class PixaiTaggerAPI
             bool isWildcardExcluded = false;
             foreach (FilterTagRule wildcardExclusionRule in rules.WildcardExclusionRules)
             {
-                if (MatchesFilterRule(tag, wildcardExclusionRule.SourceTag, wildcardExclusionRule.MatchMode))
+                if (MatchesFilterRule(tag, wildcardExclusionRule.SourceTag, wildcardExclusionRule.MatchMode)
+                    || MatchesFilterRule(tag.Replace(' ', '_'), wildcardExclusionRule.SourceTag, wildcardExclusionRule.MatchMode))
                 {
                     isWildcardExcluded = true;
                     break;
@@ -371,7 +407,8 @@ public static class PixaiTaggerAPI
             }
             if (!isWildcardExcluded)
             {
-                updatedTags.Add(prefix + tag + suffix);
+                string formattedTag = keepUnderscores ? tag.Replace(' ', '_') : tag;
+                updatedTags.Add(prefix + formattedTag + suffix);
             }
         }
         return string.Join(", ", updatedTags);
@@ -404,7 +441,7 @@ public static class PixaiTaggerAPI
     }
 
     /// <summary>Formats the final API response from cached or fresh raw GPU results by applying filter rules.</summary>
-    private static JObject FormatTagResponse(JObject rawResult, string filterTags)
+    private static JObject FormatTagResponse(JObject rawResult, string filterTags, bool keepUnderscores = false)
     {
         if (rawResult is null || rawResult["success"]?.Value<bool>() != true)
         {
@@ -419,48 +456,58 @@ public static class PixaiTaggerAPI
         string general = rawResult["general"]?.ToString() ?? "";
         JObject details = rawResult["details"]?.DeepClone() as JObject;
 
-        if (!string.IsNullOrWhiteSpace(filterTags))
-        {
-            FilterTagRules filterRules = ParseFilterTagRules(filterTags);
-            combined = ApplyFilterTagRules(combined, filterRules);
-            character = ApplyFilterTagRules(character, filterRules);
-            copyright = ApplyFilterTagRules(copyright, filterRules);
-            style = ApplyFilterTagRules(style, filterRules);
-            clothing = ApplyFilterTagRules(clothing, filterRules);
-            general = ApplyFilterTagRules(general, filterRules);
+        FilterTagRules filterRules = ParseFilterTagRules(filterTags);
+        combined = ApplyFilterTagRules(combined, filterRules, keepUnderscores);
+        character = ApplyFilterTagRules(character, filterRules, keepUnderscores);
+        copyright = ApplyFilterTagRules(copyright, filterRules, keepUnderscores);
+        style = ApplyFilterTagRules(style, filterRules, keepUnderscores);
+        clothing = ApplyFilterTagRules(clothing, filterRules, keepUnderscores);
+        general = ApplyFilterTagRules(general, filterRules, keepUnderscores);
 
-            if (details is not null)
+        if (details is not null)
+        {
+            string[] categories = ["character", "copyright", "style", "clothing", "general"];
+            foreach (string cat in categories)
             {
-                string[] categories = ["character", "copyright", "style", "clothing", "general"];
-                foreach (string cat in categories)
+                if (details[cat] is JArray arr)
                 {
-                    if (details[cat] is JArray arr)
+                    JArray newArr = [];
+                    foreach (JToken item in arr)
                     {
-                        JArray newArr = [];
-                        foreach (JToken item in arr)
+                        string tagText = item["tag"]?.ToString() ?? "";
+                        string norm = NormalizeTagText(tagText);
+                        if (string.IsNullOrWhiteSpace(norm))
                         {
-                            string tagText = item["tag"]?.ToString() ?? "";
-                            string norm = NormalizeTagText(tagText);
-                            if (filterRules.ExactExcludedTags.Contains(norm))
+                            continue;
+                        }
+                        if (filterRules.ExactExcludedTags.Contains(norm) || filterRules.ExactExcludedTags.Contains(norm.Replace(' ', '_')))
+                        {
+                            continue;
+                        }
+                        bool excluded = false;
+                        foreach (FilterTagRule rule in filterRules.WildcardExclusionRules)
+                        {
+                            if (MatchesFilterRule(norm, rule.SourceTag, rule.MatchMode)
+                                || MatchesFilterRule(norm.Replace(' ', '_'), rule.SourceTag, rule.MatchMode))
                             {
-                                continue;
-                            }
-                            bool excluded = false;
-                            foreach (FilterTagRule rule in filterRules.WildcardExclusionRules)
-                            {
-                                if (MatchesFilterRule(norm, rule.SourceTag, rule.MatchMode))
-                                {
-                                    excluded = true;
-                                    break;
-                                }
-                            }
-                            if (!excluded)
-                            {
-                                newArr.Add(item);
+                                excluded = true;
+                                break;
                             }
                         }
-                        details[cat] = newArr;
+                        if (!excluded)
+                        {
+                            if (filterRules.ExactReplacementTags.TryGetValue(norm, out string rep))
+                            {
+                                item["tag"] = keepUnderscores ? rep.Replace(' ', '_') : rep;
+                            }
+                            else if (keepUnderscores && item["tag"] is not null)
+                            {
+                                item["tag"] = item["tag"].ToString().Replace(' ', '_');
+                            }
+                            newArr.Add(item);
+                        }
                     }
+                    details[cat] = newArr;
                 }
             }
         }
@@ -496,7 +543,7 @@ public static class PixaiTaggerAPI
         bool keepUnderscores = false,
         string filterTags = DefaultBannedFilterTags)
     {
-        if (filterTags is null)
+        if (string.IsNullOrWhiteSpace(filterTags))
         {
             filterTags = DefaultBannedFilterTags;
         }
@@ -541,7 +588,7 @@ public static class PixaiTaggerAPI
         {
             string shortHash = imgHash.Length > 12 ? imgHash[..12] : imgHash;
             Logs.Info($"[PixAITagger] Reusing cached tags for image (SHA256: {shortHash}...). Skipping GPU generation.");
-            return FormatTagResponse(cachedRaw, filterTags);
+            return FormatTagResponse(cachedRaw, filterTags, keepUnderscores);
         }
 
         // Deduplicate concurrent in-flight requests (e.g., during batch generation) so GPU runs only once
@@ -587,7 +634,7 @@ public static class PixaiTaggerAPI
             RawGpuTagCache[gpuKey] = rawResult;
         }
 
-        return FormatTagResponse(rawResult, filterTags);
+        return FormatTagResponse(rawResult, filterTags, keepUnderscores);
     }
 
     /// <summary>Executes the raw ComfyUI GPU tagging workflow or remote backend forwarding without applying string filters.</summary>
@@ -729,7 +776,7 @@ public static class PixaiTaggerAPI
                         ["enable_copyright"] = enableCopyright,
                         ["include_confidence"] = includeConfidence,
                         ["keep_underscores"] = keepUnderscores,
-                        ["exclude_tags"] = "",
+                        ["exclude_tags"] = DefaultBannedFilterTags,
                         ["output_path"] = tempOutputPath
                     }
                 }
@@ -815,7 +862,7 @@ public static class PixaiTaggerAPI
     }
 
     /// <summary>Applies tag filter replacement and exclusion rules to an existing tag string.</summary>
-    public static async Task<JObject> PixaiTaggerApplyFilters(Session session, string tags, string filterTags)
+    public static async Task<JObject> PixaiTaggerApplyFilters(Session session, string tags, string filterTags, bool keepUnderscores = false)
     {
         await Task.CompletedTask;
         if (string.IsNullOrWhiteSpace(tags))
@@ -823,7 +870,7 @@ public static class PixaiTaggerAPI
             return new JObject { ["success"] = true, ["tags"] = "" };
         }
         FilterTagRules rules = ParseFilterTagRules(filterTags);
-        string filtered = ApplyFilterTagRules(tags, rules);
+        string filtered = ApplyFilterTagRules(tags, rules, keepUnderscores);
         return new JObject { ["success"] = true, ["tags"] = filtered };
     }
 }

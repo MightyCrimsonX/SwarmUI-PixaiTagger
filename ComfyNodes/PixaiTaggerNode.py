@@ -142,21 +142,25 @@ def to_pil_image(image_tensor):
 
 def parse_exclusions(exclude_text):
     """Parse comma/newline separated tag exclusion rules."""
-    if not exclude_text:
-        return set()
-    return {
-        tag.strip().lower().replace(" ", "_")
-        for tag in re.split(r"[,\n]", exclude_text)
-        if tag.strip()
-    }
+    text_to_parse = exclude_text if (exclude_text and exclude_text.strip()) else DEFAULT_EXCLUDE_TAGS
+    excluded = set()
+    for raw in re.split(r"[,\n]", text_to_parse):
+        t = raw.strip().lower()
+        if t:
+            excluded.add(t)
+            excluded.add(t.replace(" ", "_"))
+            excluded.add(t.replace("_", " "))
+    return excluded
 
 
 def format_tag_items(tag_items, excluded, replace_underscore, include_confidence):
     """Filter, sort by confidence score descending, and format tag list."""
     filtered = []
     for tag, score in tag_items:
-        norm = tag.strip().lower().replace(" ", "_")
-        if norm in excluded:
+        clean = tag.strip().lower()
+        norm_under = clean.replace(" ", "_")
+        norm_space = clean.replace("_", " ")
+        if clean in excluded or norm_under in excluded or norm_space in excluded:
             continue
         display_name = tag.replace("_", " ") if replace_underscore else tag
         if include_confidence:
@@ -273,10 +277,16 @@ class PixaiTaggerGenerate:
                 (tag, score) for tag, score in cats.get("style", {}).items()
                 if score >= style_threshold and enable_style
             ]
-            copyright_items = [
-                (tag, score) for tag, score in cats.get("copyright", {}).items()
-                if score >= copyright_threshold and enable_copyright
-            ]
+            # Filter items against exclusions
+            def is_allowed(item_tuple):
+                t_name = item_tuple[0].strip().lower()
+                return not (t_name in excluded or t_name.replace(" ", "_") in excluded or t_name.replace("_", " ") in excluded)
+
+            character_items = [it for it in character_items if is_allowed(it)]
+            copyright_items = [it for it in copyright_items if is_allowed(it)]
+            style_items = [it for it in style_items if is_allowed(it)]
+            clothing_items = [it for it in clothing_items if is_allowed(it)]
+            general_items = [it for it in general_items if is_allowed(it)]
 
             # Format each category
             char_list = format_tag_items(character_items, excluded, replace_underscore, include_confidence)

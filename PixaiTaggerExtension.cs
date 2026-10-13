@@ -150,6 +150,10 @@ public class PixaiTaggerExtension : Extension
             out float styleThresh, out bool enableStyle,
             out float copyThresh, out bool enableCopy);
         string filterTags = context.Input.Get(FilterTagsParam, PixaiTaggerAPI.DefaultBannedFilterTags);
+        if (string.IsNullOrWhiteSpace(filterTags))
+        {
+            filterTags = PixaiTaggerAPI.DefaultBannedFilterTags;
+        }
         bool includeConf = context.Input.Get(IncludeConfidenceParam, false);
         bool keepUnder = context.Input.Get(KeepUnderscoresParam, false);
 
